@@ -1071,13 +1071,9 @@ impl Page {
 
   #[napi]
   pub async fn set_extra_http_headers(&self, headers: std::collections::HashMap<String, String>) -> Result<()> {
-    let mut fx = rustc_hash::FxHashMap::default();
-    for (k, v) in headers {
-      fx.insert(k, v);
-    }
     self
       .inner
-      .set_extra_http_headers(&fx)
+      .set_extra_http_headers(headers)
       .await
       .map_err(napi::Error::from_reason)
   }

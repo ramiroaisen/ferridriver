@@ -110,11 +110,7 @@ impl BrowserContext {
 
   #[napi]
   pub async fn set_extra_http_headers(&self, headers: HashMap<String, String>) -> Result<()> {
-    let mut fx = rustc_hash::FxHashMap::default();
-    for (k, v) in headers {
-      fx.insert(k, v);
-    }
-    self.inner.set_extra_http_headers(&fx).await.into_napi()
+    self.inner.set_extra_http_headers(headers).await.into_napi()
   }
 
   #[napi]

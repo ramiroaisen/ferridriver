@@ -476,11 +476,19 @@ impl ContextRef {
   /// # Errors
   ///
   /// Returns an error if the context does not exist or setting headers fails.
-  pub async fn set_extra_http_headers(&self, headers: &rustc_hash::FxHashMap<String, String>) -> Result<()> {
+  pub async fn set_extra_http_headers<I, K, V>(&self, headers: I) -> Result<()>
+  where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+  {
+    let headers: Vec<(String, String)> = headers.into_iter().map(|(k, v)| (k.into(), v.into())).collect();
     let state = self.state.read().await;
     let ctx = state.context(&self.name)?;
     for page in &ctx.pages {
-      page.set_extra_http_headers(headers).await?;
+      page
+        .set_extra_http_headers(headers.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+        .await?;
     }
     Ok(())
   }

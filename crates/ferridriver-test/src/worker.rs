@@ -384,12 +384,9 @@ async fn apply_page_config(
     page.grant_permissions(&ctx_config.permissions, None).await?;
   }
   if !ctx_config.extra_http_headers.is_empty() {
-    let headers: rustc_hash::FxHashMap<String, String> = ctx_config
-      .extra_http_headers
-      .iter()
-      .map(|(k, v)| (k.clone(), v.clone()))
-      .collect();
-    page.set_extra_http_headers(&headers).await?;
+    page
+      .set_extra_http_headers(ctx_config.extra_http_headers.iter())
+      .await?;
   }
   if let Some(ref ua) = ctx_config.user_agent {
     page.set_user_agent(ua).await?;

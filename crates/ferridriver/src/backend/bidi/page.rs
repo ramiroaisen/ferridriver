@@ -1164,10 +1164,17 @@ impl BidiPage {
     std::future::ready(Ok(()))
   }
 
-  pub async fn set_extra_http_headers(&self, headers: &FxHashMap<String, String>) -> crate::Result<()> {
+  pub async fn set_extra_http_headers<I, K, V>(&self, headers: I) -> crate::Result<()>
+  where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+  {
     let header_list: Vec<serde_json::Value> = headers
-      .iter()
+      .into_iter()
       .map(|(k, v)| {
+        let k: String = k.into();
+        let v: String = v.into();
         json!({
           "name": k,
           "value": {"type": "string", "value": v}

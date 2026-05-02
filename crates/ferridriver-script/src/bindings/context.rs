@@ -101,7 +101,7 @@ impl BrowserContextJs {
   #[qjs(rename = "setExtraHTTPHeaders")]
   pub async fn set_extra_http_headers<'js>(&self, ctx: Ctx<'js>, headers: Value<'js>) -> rquickjs::Result<()> {
     let map: FxHashMap<String, String> = serde_from_js(&ctx, headers)?;
-    self.inner.set_extra_http_headers(&map).await.into_js()
+    self.inner.set_extra_http_headers(map).await.into_js()
   }
 
   // ── Init scripts ──────────────────────────────────────────────────────────

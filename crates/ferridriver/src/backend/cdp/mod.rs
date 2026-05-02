@@ -2420,10 +2420,15 @@ impl<T: CdpWrap> CdpPage<T> {
     Ok(())
   }
 
-  pub async fn set_extra_http_headers(&self, headers: &FxHashMap<String, String>) -> crate::Result<()> {
+  pub async fn set_extra_http_headers<I, K, V>(&self, headers: I) -> crate::Result<()>
+  where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+  {
     let h: serde_json::Map<String, serde_json::Value> = headers
-      .iter()
-      .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+      .into_iter()
+      .map(|(k, v)| (k.into(), serde_json::Value::String(v.into())))
       .collect();
     self
       .cmd("Network.setExtraHTTPHeaders", serde_json::json!({"headers": h}))

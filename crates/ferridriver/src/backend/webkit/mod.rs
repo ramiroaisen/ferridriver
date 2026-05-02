@@ -1503,7 +1503,12 @@ impl WebKitPage {
   /// # Errors
   ///
   /// Returns an error if the JavaScript evaluation fails.
-  pub async fn set_extra_http_headers(&self, headers: &rustc_hash::FxHashMap<String, String>) -> crate::Result<()> {
+  pub async fn set_extra_http_headers<I, K, V>(&self, headers: I) -> crate::Result<()>
+  where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+  {
     use std::fmt::Write;
     // Intercept fetch/XMLHttpRequest to add custom headers via WKUserScript.
     // This covers JS-initiated requests. Navigation requests need NSURLProtocol.
@@ -1521,7 +1526,7 @@ impl WebKitPage {
       "XMLHttpRequest.prototype.open=function(){this._fd_args=arguments;return _open.apply(this,arguments)};",
     );
     js.push_str("XMLHttpRequest.prototype.send=function(b){");
-    for (k, v) in headers {
+    for (k, v) in &headers {
       let ek = k.replace('\'', "\\'");
       let ev = v.replace('\'', "\\'");
       let _ = write!(js, "this.setRequestHeader('{ek}','{ev}');");

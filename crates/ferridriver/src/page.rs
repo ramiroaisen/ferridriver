@@ -1284,7 +1284,12 @@ impl Page {
   /// # Errors
   ///
   /// Returns an error if the headers cannot be set.
-  pub async fn set_extra_http_headers(&self, headers: &rustc_hash::FxHashMap<String, String>) -> Result<()> {
+  pub async fn set_extra_http_headers<I, K, V>(&self, headers: I) -> Result<()>
+  where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+  {
     self.inner.set_extra_http_headers(headers).await.map_err(Into::into)
   }
 

@@ -938,7 +938,12 @@ impl AnyPage {
     page_dispatch!(self, set_javascript_enabled(enabled))
   }
 
-  pub async fn set_extra_http_headers(&self, headers: &rustc_hash::FxHashMap<String, String>) -> crate::Result<()> {
+  pub async fn set_extra_http_headers<I, K, V>(&self, headers: I) -> crate::Result<()>
+  where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+  {
     page_dispatch!(self, set_extra_http_headers(headers))
   }
 
