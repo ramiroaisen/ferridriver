@@ -7,6 +7,7 @@
 use std::path::Path;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio_util::sync::CancellationToken;
 
 use super::transport::CdpDispatcher;
 use crate::error::FerriError;
@@ -17,6 +18,13 @@ type BoxWriter = Box<dyn AsyncWrite + Send + Unpin>;
 pub struct PipeTransport {
   write_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
   dispatcher: Arc<CdpDispatcher>,
+  io_shutdown: CancellationToken,
+}
+
+impl Drop for PipeTransport {
+  fn drop(&mut self) {
+    self.io_shutdown.cancel();
+  }
 }
 
 impl PipeTransport {
@@ -46,26 +54,36 @@ impl PipeTransport {
     let (child, reader, writer) = spawn_with_pipes(&mut command, chromium_path)?;
 
     let dispatcher = Arc::new(CdpDispatcher::new());
+    let io_shutdown = CancellationToken::new();
 
     // Writer task: batches queued messages into single write_all syscall.
     let (write_tx, mut write_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
+    let writer_cancel = io_shutdown.clone();
     tokio::spawn(async move {
       let mut writer: BoxWriter = writer;
       let mut buf = Vec::with_capacity(8192);
-      while let Some(first) = write_rx.recv().await {
-        buf.clear();
-        buf.extend_from_slice(&first);
-        while let Ok(more) = write_rx.try_recv() {
-          buf.extend_from_slice(&more);
-        }
-        if writer.write_all(&buf).await.is_err() {
-          break;
+      loop {
+        tokio::select! {
+          biased;
+          _ = writer_cancel.cancelled() => break,
+          first = write_rx.recv() => {
+            let Some(first) = first else { break };
+            buf.clear();
+            buf.extend_from_slice(&first);
+            while let Ok(more) = write_rx.try_recv() {
+              buf.extend_from_slice(&more);
+            }
+            if writer.write_all(&buf).await.is_err() {
+              break;
+            }
+          }
         }
       }
     });
 
     // Reader task: reads NUL-delimited messages, dispatches via CdpDispatcher.
     let dispatcher2 = dispatcher.clone();
+    let reader_cancel = io_shutdown.clone();
     tokio::spawn(async move {
       let mut reader: BoxReader = reader;
       let mut rx = Vec::with_capacity(64 * 1024);
@@ -73,25 +91,35 @@ impl PipeTransport {
       let mut tmp = [0u8; 32768];
 
       loop {
-        let n = match reader.read(&mut tmp).await {
-          Ok(0) | Err(_) => return,
-          Ok(n) => n,
-        };
-        rx.extend_from_slice(&tmp[..n]);
+        tokio::select! {
+          biased;
+          _ = reader_cancel.cancelled() => break,
+          read_res = reader.read(&mut tmp) => {
+            let n = match read_res {
+              Ok(0) | Err(_) => return,
+              Ok(n) => n,
+            };
+            rx.extend_from_slice(&tmp[..n]);
 
-        while let Some(nul_pos) = rx.iter().position(|&b| b == 0) {
-          if nul_pos == 0 {
-            rx.drain(..1);
-            continue;
+            while let Some(nul_pos) = rx.iter().position(|&b| b == 0) {
+              if nul_pos == 0 {
+                rx.drain(..1);
+                continue;
+              }
+              let raw = &rx[..nul_pos];
+              dispatcher2.dispatch_message(raw);
+              rx.drain(..=nul_pos);
+            }
           }
-          let raw = &rx[..nul_pos];
-          dispatcher2.dispatch_message(raw);
-          rx.drain(..=nul_pos);
         }
       }
     });
 
-    let transport = Self { write_tx, dispatcher };
+    let transport = Self {
+      write_tx,
+      dispatcher,
+      io_shutdown,
+    };
     Ok((transport, child))
   }
 }
@@ -139,6 +167,10 @@ impl super::transport::CdpTransport for PipeTransport {
     notify: Arc<tokio::sync::Notify>,
   ) {
     self.dispatcher.register_lifecycle_tracker(session_id, state, notify);
+  }
+
+  fn io_shutdown_token(&self) -> CancellationToken {
+    self.io_shutdown.clone()
   }
 }
 

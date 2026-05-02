@@ -1273,9 +1273,14 @@ impl BidiPage {
     let emitter = self.events.clone();
     let injected_script = self.injected_script.clone();
     let tracker = Arc::new(BidiNetworkTracker::new(self.session.clone()));
+    let io_shutdown = self.session.transport.io_shutdown_token();
 
     tokio::spawn(async move {
-      while let Ok(event) = rx.recv().await {
+      loop {
+        tokio::select! {
+          _ = io_shutdown.cancelled() => break,
+          ev = rx.recv() => {
+            let Ok(event) = ev else { break };
         // Filter events for this context
         let event_ctx = event.params.get("context").and_then(|v| v.as_str()).unwrap_or("");
         if event_ctx != &*ctx && !event_ctx.is_empty() {
@@ -1358,6 +1363,8 @@ impl BidiPage {
             emitter.emit(PageEvent::Close);
           },
           _ => {},
+        }
+          },
         }
       }
     });
@@ -1454,23 +1461,31 @@ impl BidiPage {
     let event_notify = Arc::new(tokio::sync::Notify::new());
     let event_notify2 = event_notify.clone();
     let event_ctx = self.context_id.clone();
+    let io_shutdown_events = self.session.transport.io_shutdown_token();
 
     tokio::spawn(async move {
-      while let Ok(event) = event_rx.recv().await {
-        let is_relevant = matches!(
-          event.method.as_str(),
-          "browsingContext.load" | "browsingContext.domContentLoaded" | "browsingContext.navigationCommitted"
-        );
-        if is_relevant {
-          if let Some(c) = event.params.get("context").and_then(|v| v.as_str()) {
-            if c == &*event_ctx {
-              event_notify2.notify_one();
+      loop {
+        tokio::select! {
+          _ = io_shutdown_events.cancelled() => break,
+          ev = event_rx.recv() => {
+            let Ok(event) = ev else { break };
+            let is_relevant = matches!(
+              event.method.as_str(),
+              "browsingContext.load" | "browsingContext.domContentLoaded" | "browsingContext.navigationCommitted"
+            );
+            if is_relevant {
+              if let Some(c) = event.params.get("context").and_then(|v| v.as_str()) {
+                if c == &*event_ctx {
+                  event_notify2.notify_one();
+                }
+              }
             }
-          }
+          },
         }
       }
     });
 
+    let io_shutdown_capture = self.session.transport.io_shutdown_token();
     tokio::spawn(async move {
       let target_interval = std::time::Duration::from_millis(66); // ~15 fps
       let capture_params = json!({
@@ -1480,7 +1495,7 @@ impl BidiPage {
       });
 
       loop {
-        if closed.load(Ordering::Relaxed) {
+        if closed.load(Ordering::Relaxed) || io_shutdown_capture.is_cancelled() {
           break;
         }
         let frame_start = tokio::time::Instant::now();
@@ -1512,6 +1527,8 @@ impl BidiPage {
         if elapsed < target_interval {
           let remaining = target_interval.checked_sub(elapsed).unwrap_or_default();
           tokio::select! {
+            biased;
+            _ = io_shutdown_capture.cancelled() => break,
             () = tokio::time::sleep(remaining) => {},
             () = event_notify.notified() => {},
           }
@@ -1585,74 +1602,81 @@ impl BidiPage {
       let ctx = self.context_id.clone();
       let session = self.session.clone();
       let routes = self.routes.clone();
+      let io_shutdown = self.session.transport.io_shutdown_token();
 
       tokio::spawn(async move {
-        while let Ok(event) = rx.recv().await {
-          if event.method != "network.beforeRequestSent" {
-            continue;
-          }
-          let event_ctx = event.params.get("context").and_then(|v| v.as_str()).unwrap_or("");
-          if event_ctx != &*ctx {
-            continue;
-          }
-          let is_blocked = event
-            .params
-            .get("isBlocked")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-          if !is_blocked {
-            continue;
-          }
+        loop {
+          tokio::select! {
+            _ = io_shutdown.cancelled() => break,
+            ev = rx.recv() => {
+              let Ok(event) = ev else { break };
+              if event.method != "network.beforeRequestSent" {
+                continue;
+              }
+              let event_ctx = event.params.get("context").and_then(|v| v.as_str()).unwrap_or("");
+              if event_ctx != &*ctx {
+                continue;
+              }
+              let is_blocked = event
+                .params
+                .get("isBlocked")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+              if !is_blocked {
+                continue;
+              }
 
-          let req_obj = event.params.get("request");
-          let request_id = req_obj
-            .and_then(|v| v.get("request"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-          let url = req_obj
-            .and_then(|v| v.get("url"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+              let req_obj = event.params.get("request");
+              let request_id = req_obj
+                .and_then(|v| v.get("request"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+              let url = req_obj
+                .and_then(|v| v.get("url"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
 
-          let matched_handler = {
-            let routes_guard = routes.read().await;
-            routes_guard
-              .iter()
-              .find(|r| r.matcher.matches(url))
-              .map(|r| std::sync::Arc::clone(&r.handler))
-          };
+              let matched_handler = {
+                let routes_guard = routes.read().await;
+                routes_guard
+                  .iter()
+                  .find(|r| r.matcher.matches(url))
+                  .map(|r| std::sync::Arc::clone(&r.handler))
+              };
 
-          if let Some(handler) = matched_handler {
-            let method = req_obj
-              .and_then(|r| r.get("method"))
-              .and_then(|v| v.as_str())
-              .unwrap_or("GET");
-            let headers: crate::hash::HashMap<String, String> = req_obj
-              .and_then(|r| r.get("headers"))
-              .map(parse_bidi_headers)
-              .unwrap_or_default();
+              if let Some(handler) = matched_handler {
+                let method = req_obj
+                  .and_then(|r| r.get("method"))
+                  .and_then(|v| v.as_str())
+                  .unwrap_or("GET");
+                let headers: crate::hash::HashMap<String, String> = req_obj
+                  .and_then(|r| r.get("headers"))
+                  .map(parse_bidi_headers)
+                  .unwrap_or_default();
 
-            let intercepted = crate::route::InterceptedRequest {
-              request_id: request_id.to_string(),
-              url: url.to_string(),
-              method: method.to_string(),
-              headers,
-              post_data: None,
-              resource_type: String::new(),
-            };
+                let intercepted = crate::route::InterceptedRequest {
+                  request_id: request_id.to_string(),
+                  url: url.to_string(),
+                  method: method.to_string(),
+                  headers,
+                  post_data: None,
+                  resource_type: String::new(),
+                };
 
-            let (tx, action_rx) = tokio::sync::oneshot::channel();
-            let route = crate::route::Route::new(intercepted, tx);
-            handler(route);
-            let action = action_rx.await.unwrap_or(crate::route::RouteAction::Continue(
-              crate::route::ContinueOverrides::default(),
-            ));
-            execute_bidi_route_action(&session.transport, request_id, action).await;
-          } else {
-            let _ = session
-              .transport
-              .send_command("network.continueRequest", json!({"request": request_id}))
-              .await;
+                let (tx, action_rx) = tokio::sync::oneshot::channel();
+                let route = crate::route::Route::new(intercepted, tx);
+                handler(route);
+                let action = action_rx.await.unwrap_or(crate::route::RouteAction::Continue(
+                  crate::route::ContinueOverrides::default(),
+                ));
+                execute_bidi_route_action(&session.transport, request_id, action).await;
+              } else {
+                let _ = session
+                  .transport
+                  .send_command("network.continueRequest", json!({"request": request_id}))
+                  .await;
+              }
+            },
           }
         }
       });

@@ -41,16 +41,26 @@ impl BidiBrowser {
     timeout: std::time::Duration,
   ) -> crate::Result<()> {
     let mut rx = self.session.transport.subscribe_events();
+    let io_shutdown = self.session.transport.io_shutdown_token();
     let wait_for_event = async {
-      while let Ok(event) = rx.recv().await {
-        if event.method != method {
-          continue;
-        }
-        if event.params.get("context").and_then(|v| v.as_str()) == Some(context_id) {
-          return Ok(());
+      loop {
+        tokio::select! {
+          _ = io_shutdown.cancelled() => {
+            return Err(format!("BiDi transport shut down while waiting for {method}").into());
+          },
+          ev = rx.recv() => {
+            let Ok(event) = ev else {
+              return Err(format!("BiDi event stream closed while waiting for {method}").into());
+            };
+            if event.method != method {
+              continue;
+            }
+            if event.params.get("context").and_then(|v| v.as_str()) == Some(context_id) {
+              return Ok(());
+            }
+          },
         }
       }
-      Err(format!("BiDi event stream closed while waiting for {method}").into())
     };
     tokio::time::timeout(timeout, wait_for_event)
       .await
@@ -179,6 +189,7 @@ impl BidiBrowser {
       params["userContext"] = json!(user_context_id);
     }
     let mut rx = self.session.transport.subscribe_events();
+    let io_shutdown = self.session.transport.io_shutdown_token();
     let result = self
       .session
       .transport
@@ -191,15 +202,24 @@ impl BidiBrowser {
       .to_string();
 
     let wait_for_created = async {
-      while let Ok(event) = rx.recv().await {
-        if event.method != "browsingContext.contextCreated" {
-          continue;
-        }
-        if event.params.get("context").and_then(|v| v.as_str()) == Some(&context_id) {
-          return Ok::<(), String>(());
+      loop {
+        tokio::select! {
+          _ = io_shutdown.cancelled() => {
+            return Err("BiDi transport shut down while waiting for browsingContext.contextCreated".to_string());
+          },
+          ev = rx.recv() => {
+            let Ok(event) = ev else {
+              return Err("BiDi event stream closed while waiting for browsingContext.contextCreated".to_string());
+            };
+            if event.method != "browsingContext.contextCreated" {
+              continue;
+            }
+            if event.params.get("context").and_then(|v| v.as_str()) == Some(&context_id) {
+              return Ok::<(), String>(());
+            }
+          },
         }
       }
-      Err("BiDi event stream closed while waiting for browsingContext.contextCreated".to_string())
     };
     let _ = tokio::time::timeout(std::time::Duration::from_secs(2), wait_for_created).await;
 
@@ -229,6 +249,7 @@ impl BidiBrowser {
       let _ = group.inner_mut().kill().await;
     }
 
+    self.session.transport.io_shutdown_token().cancel();
     Ok(())
   }
 }

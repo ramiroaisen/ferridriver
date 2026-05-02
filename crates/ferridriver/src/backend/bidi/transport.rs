@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, trace, warn};
 
 use crate::FerriError;
@@ -56,6 +57,13 @@ pub(crate) struct BidiTransport {
   pending: Arc<std::sync::Mutex<PendingMap>>,
   write_tx: mpsc::Sender<Message>,
   event_tx: broadcast::Sender<BidiEvent>,
+  io_shutdown: CancellationToken,
+}
+
+impl Drop for BidiTransport {
+  fn drop(&mut self) {
+    self.io_shutdown.cancel();
+  }
 }
 
 impl BidiTransport {
@@ -69,14 +77,23 @@ impl BidiTransport {
 
     let (write, read) = ws_stream.split();
     let pending: Arc<std::sync::Mutex<PendingMap>> = Arc::new(std::sync::Mutex::new(crate::hash::HashMap::default()));
+    let io_shutdown = CancellationToken::new();
 
     // Writer task
     let (write_tx, mut write_rx) = mpsc::channel::<Message>(128);
+    let writer_cancel = io_shutdown.clone();
     tokio::spawn(async move {
       let mut writer = write;
-      while let Some(msg) = write_rx.recv().await {
-        if writer.send(msg).await.is_err() {
-          break;
+      loop {
+        tokio::select! {
+          biased;
+          _ = writer_cancel.cancelled() => break,
+          msg = write_rx.recv() => {
+            let Some(msg) = msg else { break };
+            if writer.send(msg).await.is_err() {
+              break;
+            }
+          }
         }
       }
     });
@@ -87,52 +104,60 @@ impl BidiTransport {
 
     // Reader task -- hot path uses json_scan for zero-alloc field extraction
     let pending2 = pending.clone();
+    let reader_cancel = io_shutdown.clone();
     tokio::spawn(async move {
       let mut read = read;
-      while let Some(result) = read.next().await {
-        let msg = match result {
-          Ok(m) => m,
-          Err(e) => {
-            warn!("BiDi WebSocket error: {e:?}");
-            break;
-          },
-        };
-        let text = match msg {
-          Message::Text(t) => t,
-          Message::Close(frame) => {
-            debug!("BiDi WebSocket close frame: {frame:?}");
-            break;
-          },
-          _ => continue,
-        };
-        let bytes = text.as_bytes();
+      loop {
+        tokio::select! {
+          biased;
+          _ = reader_cancel.cancelled() => break,
+          frame = read.next() => {
+            let Some(result) = frame else { break };
+            let msg = match result {
+              Ok(m) => m,
+              Err(e) => {
+                warn!("BiDi WebSocket error: {e:?}");
+                break;
+              },
+            };
+            let text = match msg {
+              Message::Text(t) => t,
+              Message::Close(frame) => {
+                debug!("BiDi WebSocket close frame: {frame:?}");
+                break;
+              },
+              _ => continue,
+            };
+            let bytes = text.as_bytes();
 
-        // Hot path: extract "type" field without full parse
-        let type_field = json_scan::json_string(json_scan::json_field(bytes, b"type"));
+            // Hot path: extract "type" field without full parse
+            let type_field = json_scan::json_string(json_scan::json_field(bytes, b"type"));
 
-        if type_field == b"success" || type_field == b"error" {
-          handle_command_response(bytes, type_field, &pending2);
-        } else if type_field == b"event" {
-          // Event -- extract method and params, broadcast
-          let method_bytes = json_scan::json_string(json_scan::json_field(bytes, b"method"));
-          if method_bytes.is_empty() {
-            continue;
-          }
-          let method = String::from_utf8_lossy(method_bytes).to_string();
+            if type_field == b"success" || type_field == b"error" {
+              handle_command_response(bytes, type_field, &pending2);
+            } else if type_field == b"event" {
+              // Event -- extract method and params, broadcast
+              let method_bytes = json_scan::json_string(json_scan::json_field(bytes, b"method"));
+              if method_bytes.is_empty() {
+                continue;
+              }
+              let method = String::from_utf8_lossy(method_bytes).to_string();
 
-          // Full-parse only for events (we need the params)
-          match serde_json::from_slice::<serde_json::Value>(bytes) {
-            Ok(parsed) => {
-              let params = parsed.get("params").cloned().unwrap_or(serde_json::Value::Null);
-              trace!("BiDi event: {method}");
-              let _ = event_tx2.send(BidiEvent { method, params });
-            },
-            Err(e) => {
-              warn!("BiDi event parse error: {e}");
-            },
+              // Full-parse only for events (we need the params)
+              match serde_json::from_slice::<serde_json::Value>(bytes) {
+                Ok(parsed) => {
+                  let params = parsed.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                  trace!("BiDi event: {method}");
+                  let _ = event_tx2.send(BidiEvent { method, params });
+                },
+                Err(e) => {
+                  warn!("BiDi event parse error: {e}");
+                },
+              }
+            }
+            // else: ignore unknown message types
           }
         }
-        // else: ignore unknown message types
       }
       debug!("BiDi reader task ended");
     });
@@ -143,7 +168,13 @@ impl BidiTransport {
       pending,
       write_tx,
       event_tx,
+      io_shutdown,
     })
+  }
+
+  #[must_use]
+  pub(crate) fn io_shutdown_token(&self) -> CancellationToken {
+    self.io_shutdown.clone()
   }
 
   /// Send a `BiDi` command and await the response.

@@ -15,6 +15,7 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 // ─── Binary frame protocol ──────────────────────────────────────────────────
 
@@ -357,6 +358,14 @@ pub struct IpcClient {
   /// Route handler callback. Called from the reader thread for route requests.
   /// Set by `WebKitPage` when routes are registered.
   pub route_handler: Arc<StdMutex<Option<RouteCallback>>>,
+  /// Stops `WebKitPage::attach_listeners` tasks when the browser session ends.
+  listener_shutdown: CancellationToken,
+}
+
+impl Drop for IpcClient {
+  fn drop(&mut self) {
+    self.listener_shutdown.cancel();
+  }
 }
 
 /// Path to the host binary baked in at compile time by build.rs.
@@ -460,6 +469,7 @@ impl IpcClient {
       write_sock.try_clone().map_err(|e| format!("clone writer: {e}"))?,
     ));
     let event_notify = Arc::new(tokio::sync::Notify::new());
+    let listener_shutdown = CancellationToken::new();
 
     // Reader thread: blocking reads of binary frames
     Self::spawn_reader_thread(
@@ -484,6 +494,7 @@ impl IpcClient {
       network_log,
       event_notify,
       route_handler,
+      listener_shutdown,
     };
 
     // Probe subprocess readiness -- send ListViews, retry until it responds.
@@ -715,5 +726,10 @@ impl IpcClient {
   /// or mutex poisoned).
   pub async fn send_empty(&self, op: Op) -> crate::Result<IpcResponse> {
     self.send(op, &[]).await
+  }
+
+  #[must_use]
+  pub fn listener_shutdown_token(&self) -> CancellationToken {
+    self.listener_shutdown.clone()
   }
 }

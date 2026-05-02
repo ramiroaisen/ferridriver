@@ -171,6 +171,7 @@ impl WebKitBrowser {
     // Kill the host subprocess via the shared guard; `WebKitChildGuard::Drop`
     // also runs when the last clone of the `Arc` goes, so this is the graceful
     // path and `Drop` is the safety net for panics / missing explicit close.
+    self.client.listener_shutdown_token().cancel();
     self.child.shutdown();
     std::future::ready(Ok(()))
   }
@@ -1680,11 +1681,13 @@ impl WebKitPage {
     let emitter = self.events.clone();
     let notify = client.event_notify.clone();
     let injected_script = self.injected_script.clone();
+    let listener_shutdown = client.listener_shutdown_token();
     tokio::spawn(async move {
       loop {
-        // Wait for the IPC reader thread to signal that events arrived.
-        // No polling -- wakes instantly when a console/dialog/network event is received.
-        notify.notified().await;
+        tokio::select! {
+          _ = listener_shutdown.cancelled() => break,
+          _ = notify.notified() => {},
+        }
 
         // Drain console events
         {

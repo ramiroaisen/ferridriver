@@ -7,6 +7,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{broadcast, oneshot};
+use tokio_util::sync::CancellationToken;
 
 use crate::backend::json_scan;
 use crate::error::FerriError;
@@ -49,6 +50,9 @@ pub trait CdpTransport: Send + Sync + 'static {
     state: Arc<std::sync::Mutex<super::LifecycleState>>,
     notify: Arc<tokio::sync::Notify>,
   );
+
+  /// Cancels I/O tasks and event-listener loops so `Arc<Self>` can drop after browser shutdown.
+  fn io_shutdown_token(&self) -> CancellationToken;
 }
 
 // ── Shared dispatch state ──────────────────────────────────────────────────

@@ -362,6 +362,7 @@ impl<T: CdpWrap> CdpBrowser<T> {
   ) -> crate::Result<AnyPage> {
     // Subscribe to events BEFORE createTarget so we don't miss the auto-attach.
     let mut event_rx = self.transport.subscribe_events();
+    let io_shutdown = self.transport.io_shutdown_token();
 
     let create_params = if let Some(ctx_id) = browser_context_id {
       serde_json::json!({"url": "about:blank", "browserContextId": ctx_id})
@@ -384,21 +385,30 @@ impl<T: CdpWrap> CdpBrowser<T> {
     // The target is paused (waitForDebuggerOnStart) so we can set up everything.
     let tid = target_id.clone();
     let sid = tokio::time::timeout(Duration::from_secs(30), async move {
-      while let Ok(event) = event_rx.recv().await {
-        if event.get("method").and_then(|m| m.as_str()) == Some("Target.attachedToTarget") {
-          if let Some(params) = event.get("params") {
-            let event_tid = params
-              .get("targetInfo")
-              .and_then(|i| i.get("targetId"))
-              .and_then(|v| v.as_str())
-              .unwrap_or("");
-            if event_tid == tid {
-              return Ok(params.get("sessionId").and_then(|v| v.as_str()).map(String::from));
+      loop {
+        tokio::select! {
+          _ = io_shutdown.cancelled() => {
+            return Err("browser transport shut down".to_string());
+          },
+          ev = event_rx.recv() => {
+            let Ok(event) = ev else {
+              return Err("Event channel closed".to_string());
+            };
+            if event.get("method").and_then(|m| m.as_str()) == Some("Target.attachedToTarget") {
+              if let Some(params) = event.get("params") {
+                let event_tid = params
+                  .get("targetInfo")
+                  .and_then(|i| i.get("targetId"))
+                  .and_then(|v| v.as_str())
+                  .unwrap_or("");
+                if event_tid == tid {
+                  return Ok(params.get("sessionId").and_then(|v| v.as_str()).map(String::from));
+                }
+              }
             }
-          }
+          },
         }
       }
-      Err("Event channel closed".to_string())
     })
     .await
     .map_err(|_| format!("Timeout waiting for auto-attach of {target_id}"))??;
@@ -461,6 +471,10 @@ impl<T: CdpWrap> CdpBrowser<T> {
       // enclosing runtime doesn't carry a zombie pending waitpid.
       let _ = group.inner_mut().kill().await;
     }
+    // Release page listener tasks and I/O helpers so `Arc<Transport>` can drop.
+    // (`CdpBrowser` is `Clone`; do not cancel from `Drop` — short-lived clones
+    // used for page-open plans would tear down a shared browser.)
+    self.transport.io_shutdown_token().cancel();
     Ok(())
   }
 }
@@ -1571,58 +1585,65 @@ impl<T: CdpWrap> CdpPage<T> {
     session_id: Option<Arc<str>>,
     frame_tx: tokio::sync::mpsc::UnboundedSender<(Vec<u8>, f64)>,
   ) {
+    let io_shutdown = transport.io_shutdown_token();
     tokio::spawn(async move {
       let mut rx = transport.subscribe_events();
-      while let Ok(event) = rx.recv().await {
-        // Filter by CDP session.
-        if let Some(ref expected_sid) = session_id {
-          let event_sid = event.get("sessionId").and_then(|v| v.as_str());
-          if event_sid != Some(&**expected_sid) {
-            continue;
-          }
-        }
-
-        if event.get("method").and_then(|m| m.as_str()) != Some("Page.screencastFrame") {
-          continue;
-        }
-
-        let Some(params) = event.get("params") else { continue };
-
-        // Extract Chrome's frame timestamp (seconds since epoch).
-        // Falls back to wall clock if metadata is missing.
-        let timestamp = params
-          .get("metadata")
-          .and_then(|m| m.get("timestamp"))
-          .and_then(serde_json::Value::as_f64)
-          .unwrap_or_else(|| {
-            std::time::SystemTime::now()
-              .duration_since(std::time::UNIX_EPOCH)
-              .unwrap_or_default()
-              .as_secs_f64()
-          });
-
-        // Decode base64 JPEG frame data and forward with timestamp.
-        if let Some(data_str) = params.get("data").and_then(|v| v.as_str()) {
-          if let Ok(jpeg_bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data_str) {
-            if frame_tx.send((jpeg_bytes, timestamp)).is_err() {
-              break;
+      loop {
+        tokio::select! {
+          _ = io_shutdown.cancelled() => break,
+          ev = rx.recv() => {
+            let Ok(event) = ev else { break };
+            // Filter by CDP session.
+            if let Some(ref expected_sid) = session_id {
+              let event_sid = event.get("sessionId").and_then(|v| v.as_str());
+              if event_sid != Some(&**expected_sid) {
+                continue;
+              }
             }
-          }
-        }
 
-        // Acknowledge immediately (non-blocking) so Chrome sends the next frame ASAP.
-        let ack_id = params.get("sessionId").and_then(serde_json::Value::as_i64).unwrap_or(0);
-        let t = transport.clone();
-        let sid = session_id.clone();
-        tokio::spawn(async move {
-          let _ = t
-            .send_command(
-              sid.as_deref(),
-              "Page.screencastFrameAck",
-              serde_json::json!({ "sessionId": ack_id }),
-            )
-            .await;
-        });
+            if event.get("method").and_then(|m| m.as_str()) != Some("Page.screencastFrame") {
+              continue;
+            }
+
+            let Some(params) = event.get("params") else { continue };
+
+            // Extract Chrome's frame timestamp (seconds since epoch).
+            // Falls back to wall clock if metadata is missing.
+            let timestamp = params
+              .get("metadata")
+              .and_then(|m| m.get("timestamp"))
+              .and_then(serde_json::Value::as_f64)
+              .unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                  .duration_since(std::time::UNIX_EPOCH)
+                  .unwrap_or_default()
+                  .as_secs_f64()
+              });
+
+            // Decode base64 JPEG frame data and forward with timestamp.
+            if let Some(data_str) = params.get("data").and_then(|v| v.as_str()) {
+              if let Ok(jpeg_bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data_str) {
+                if frame_tx.send((jpeg_bytes, timestamp)).is_err() {
+                  break;
+                }
+              }
+            }
+
+            // Acknowledge immediately (non-blocking) so Chrome sends the next frame ASAP.
+            let ack_id = params.get("sessionId").and_then(serde_json::Value::as_i64).unwrap_or(0);
+            let t = transport.clone();
+            let sid = session_id.clone();
+            tokio::spawn(async move {
+              let _ = t
+                .send_command(
+                  sid.as_deref(),
+                  "Page.screencastFrameAck",
+                  serde_json::json!({ "sessionId": ack_id }),
+                )
+                .await;
+            });
+          },
+        }
       }
     });
   }
@@ -2578,34 +2599,41 @@ impl<T: CdpWrap> CdpPage<T> {
     console_log: Arc<RwLock<Vec<ConsoleMsg>>>,
     emitter: crate::events::EventEmitter,
   ) {
+    let io_shutdown = transport.io_shutdown_token();
     tokio::spawn(async move {
       let mut rx = transport.subscribe_events();
-      while let Ok(event) = rx.recv().await {
-        if let Some(ref expected_sid) = session_id {
-          let event_sid = event.get("sessionId").and_then(|v| v.as_str());
-          if event_sid != Some(&**expected_sid) {
-            continue;
-          }
-        }
+      loop {
+        tokio::select! {
+          _ = io_shutdown.cancelled() => break,
+          ev = rx.recv() => {
+            let Ok(event) = ev else { break };
+            if let Some(ref expected_sid) = session_id {
+              let event_sid = event.get("sessionId").and_then(|v| v.as_str());
+              if event_sid != Some(&**expected_sid) {
+                continue;
+              }
+            }
 
-        if event.get("method").and_then(|m| m.as_str()) == Some("Runtime.consoleAPICalled") {
-          if let Some(params) = event.get("params") {
-            let r#type = params.get("type").and_then(|v| v.as_str()).unwrap_or("log").to_string();
-            let text = params
-              .get("args")
-              .and_then(|a| a.as_array())
-              .map(|args| {
-                args
-                  .iter()
-                  .filter_map(|a| a.get("value").map(|v| v.to_string().trim_matches('"').to_string()))
-                  .collect::<Vec<_>>()
-                  .join(" ")
-              })
-              .unwrap_or_default();
-            let msg = ConsoleMsg { r#type, text };
-            console_log.write().await.push(msg.clone());
-            emitter.emit(crate::events::PageEvent::Console(msg));
-          }
+            if event.get("method").and_then(|m| m.as_str()) == Some("Runtime.consoleAPICalled") {
+              if let Some(params) = event.get("params") {
+                let r#type = params.get("type").and_then(|v| v.as_str()).unwrap_or("log").to_string();
+                let text = params
+                  .get("args")
+                  .and_then(|a| a.as_array())
+                  .map(|args| {
+                    args
+                      .iter()
+                      .filter_map(|a| a.get("value").map(|v| v.to_string().trim_matches('"').to_string()))
+                      .collect::<Vec<_>>()
+                      .join(" ")
+                  })
+                  .unwrap_or_default();
+                let msg = ConsoleMsg { r#type, text };
+                console_log.write().await.push(msg.clone());
+                emitter.emit(crate::events::PageEvent::Console(msg));
+              }
+            }
+          },
         }
       }
     });
@@ -2618,90 +2646,97 @@ impl<T: CdpWrap> CdpPage<T> {
     emitter: crate::events::EventEmitter,
   ) {
     let tracker: Arc<NetworkTracker<T>> = Arc::new(NetworkTracker::new(transport.clone(), session_id.clone()));
+    let io_shutdown = transport.io_shutdown_token();
     tokio::spawn(async move {
       let mut rx = transport.subscribe_events();
-      while let Ok(event) = rx.recv().await {
-        if let Some(ref expected_sid) = session_id {
-          let event_sid = event.get("sessionId").and_then(|v| v.as_str());
-          if event_sid != Some(&**expected_sid) {
-            continue;
-          }
-        }
-        let method = event.get("method").and_then(|m| m.as_str()).unwrap_or("");
-        let params = event.get("params");
-        match method {
-          "Network.requestWillBeSent" => {
-            if let Some(p) = params {
-              tracker.on_request_will_be_sent(p, &network_log, &emitter).await;
+      loop {
+        tokio::select! {
+          _ = io_shutdown.cancelled() => break,
+          ev = rx.recv() => {
+            let Ok(event) = ev else { break };
+            if let Some(ref expected_sid) = session_id {
+              let event_sid = event.get("sessionId").and_then(|v| v.as_str());
+              if event_sid != Some(&**expected_sid) {
+                continue;
+              }
+            }
+            let method = event.get("method").and_then(|m| m.as_str()).unwrap_or("");
+            let params = event.get("params");
+            match method {
+              "Network.requestWillBeSent" => {
+                if let Some(p) = params {
+                  tracker.on_request_will_be_sent(p, &network_log, &emitter).await;
+                }
+              },
+              "Network.requestWillBeSentExtraInfo" => {
+                if let Some(p) = params {
+                  tracker.on_request_extra_info(p).await;
+                }
+              },
+              "Network.responseReceived" => {
+                if let Some(p) = params {
+                  tracker.on_response_received(p, &emitter).await;
+                }
+              },
+              "Network.responseReceivedExtraInfo" => {
+                if let Some(p) = params {
+                  tracker.on_response_extra_info(p).await;
+                }
+              },
+              "Network.loadingFinished" => {
+                if let Some(p) = params {
+                  tracker.on_loading_finished(p, &emitter).await;
+                }
+              },
+              "Network.loadingFailed" => {
+                if let Some(p) = params {
+                  tracker.on_loading_failed(p, &emitter).await;
+                }
+              },
+              "Network.webSocketCreated" => {
+                if let Some(p) = params {
+                  tracker.on_websocket_created(p, &emitter).await;
+                }
+              },
+              "Network.webSocketFrameSent" => {
+                if let Some(p) = params {
+                  tracker.on_websocket_frame_sent(p).await;
+                }
+              },
+              "Network.webSocketFrameReceived" => {
+                if let Some(p) = params {
+                  tracker.on_websocket_frame_received(p).await;
+                }
+              },
+              "Network.webSocketFrameError" => {
+                if let Some(p) = params {
+                  tracker.on_websocket_error(p).await;
+                }
+              },
+              "Network.webSocketClosed" => {
+                if let Some(p) = params {
+                  tracker.on_websocket_closed(p).await;
+                }
+              },
+              "Page.downloadWillBegin" => {
+                if let Some(p) = params {
+                  let guid = p.get("guid").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                  let url = p.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                  let filename = p
+                    .get("suggestedFilename")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                  emitter.emit(crate::events::PageEvent::Download(crate::events::DownloadInfo {
+                    guid,
+                    url,
+                    suggested_filename: filename,
+                  }));
+                }
+              },
+              _ => {},
             }
           },
-          "Network.requestWillBeSentExtraInfo" => {
-            if let Some(p) = params {
-              tracker.on_request_extra_info(p).await;
-            }
-          },
-          "Network.responseReceived" => {
-            if let Some(p) = params {
-              tracker.on_response_received(p, &emitter).await;
-            }
-          },
-          "Network.responseReceivedExtraInfo" => {
-            if let Some(p) = params {
-              tracker.on_response_extra_info(p).await;
-            }
-          },
-          "Network.loadingFinished" => {
-            if let Some(p) = params {
-              tracker.on_loading_finished(p, &emitter).await;
-            }
-          },
-          "Network.loadingFailed" => {
-            if let Some(p) = params {
-              tracker.on_loading_failed(p, &emitter).await;
-            }
-          },
-          "Network.webSocketCreated" => {
-            if let Some(p) = params {
-              tracker.on_websocket_created(p, &emitter).await;
-            }
-          },
-          "Network.webSocketFrameSent" => {
-            if let Some(p) = params {
-              tracker.on_websocket_frame_sent(p).await;
-            }
-          },
-          "Network.webSocketFrameReceived" => {
-            if let Some(p) = params {
-              tracker.on_websocket_frame_received(p).await;
-            }
-          },
-          "Network.webSocketFrameError" => {
-            if let Some(p) = params {
-              tracker.on_websocket_error(p).await;
-            }
-          },
-          "Network.webSocketClosed" => {
-            if let Some(p) = params {
-              tracker.on_websocket_closed(p).await;
-            }
-          },
-          "Page.downloadWillBegin" => {
-            if let Some(p) = params {
-              let guid = p.get("guid").and_then(|v| v.as_str()).unwrap_or("").to_string();
-              let url = p.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
-              let filename = p
-                .get("suggestedFilename")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-              emitter.emit(crate::events::PageEvent::Download(crate::events::DownloadInfo {
-                guid,
-                url,
-                suggested_filename: filename,
-              }));
-            }
-          },
-          _ => {},
         }
       }
     });
@@ -2714,57 +2749,64 @@ impl<T: CdpWrap> CdpPage<T> {
     dialog_log: Arc<RwLock<Vec<crate::state::DialogEvent>>>,
     emitter: crate::events::EventEmitter,
   ) {
+    let io_shutdown = transport.io_shutdown_token();
     tokio::spawn(async move {
       let mut rx = transport.subscribe_events();
-      while let Ok(event) = rx.recv().await {
-        if let Some(ref expected_sid) = session_id {
-          let event_sid = event.get("sessionId").and_then(|v| v.as_str());
-          if event_sid != Some(&**expected_sid) {
-            continue;
-          }
-        }
-        if event.get("method").and_then(|m| m.as_str()) == Some("Page.javascriptDialogOpening") {
-          if let Some(params) = event.get("params") {
-            let dialog_type = params.get("type").and_then(|v| v.as_str()).unwrap_or("alert");
-            let message = params.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let default_value = params
-              .get("defaultPrompt")
-              .and_then(|v| v.as_str())
-              .unwrap_or("")
-              .to_string();
-
-            let pending = crate::events::PendingDialog {
-              dialog_type: dialog_type.to_string(),
-              message: message.clone(),
-              default_value: default_value.clone(),
-            };
-
-            let action = handler.read().await(&pending);
-            let (accept, prompt_text) = match &action {
-              crate::events::DialogAction::Accept(text) => (true, text.clone()),
-              crate::events::DialogAction::Dismiss => (false, None),
-            };
-
-            let mut cmd_params = serde_json::json!({"accept": accept});
-            if let Some(text) = &prompt_text {
-              cmd_params["promptText"] = serde_json::Value::String(text.clone());
+      loop {
+        tokio::select! {
+          _ = io_shutdown.cancelled() => break,
+          ev = rx.recv() => {
+            let Ok(event) = ev else { break };
+            if let Some(ref expected_sid) = session_id {
+              let event_sid = event.get("sessionId").and_then(|v| v.as_str());
+              if event_sid != Some(&**expected_sid) {
+                continue;
+              }
             }
-            let _ = transport
-              .send_command(session_id.as_deref(), "Page.handleJavaScriptDialog", cmd_params)
-              .await;
+            if event.get("method").and_then(|m| m.as_str()) == Some("Page.javascriptDialogOpening") {
+              if let Some(params) = event.get("params") {
+                let dialog_type = params.get("type").and_then(|v| v.as_str()).unwrap_or("alert");
+                let message = params.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let default_value = params
+                  .get("defaultPrompt")
+                  .and_then(|v| v.as_str())
+                  .unwrap_or("")
+                  .to_string();
 
-            let action_str = match &action {
-              crate::events::DialogAction::Accept(_) => "accepted",
-              crate::events::DialogAction::Dismiss => "dismissed",
-            };
-            dialog_log.write().await.push(crate::state::DialogEvent {
-              dialog_type: dialog_type.to_string(),
-              message: message.clone(),
-              action: action_str.to_string(),
-            });
+                let pending = crate::events::PendingDialog {
+                  dialog_type: dialog_type.to_string(),
+                  message: message.clone(),
+                  default_value: default_value.clone(),
+                };
 
-            emitter.emit(crate::events::PageEvent::Dialog(pending));
-          }
+                let action = handler.read().await(&pending);
+                let (accept, prompt_text) = match &action {
+                  crate::events::DialogAction::Accept(text) => (true, text.clone()),
+                  crate::events::DialogAction::Dismiss => (false, None),
+                };
+
+                let mut cmd_params = serde_json::json!({"accept": accept});
+                if let Some(text) = &prompt_text {
+                  cmd_params["promptText"] = serde_json::Value::String(text.clone());
+                }
+                let _ = transport
+                  .send_command(session_id.as_deref(), "Page.handleJavaScriptDialog", cmd_params)
+                  .await;
+
+                let action_str = match &action {
+                  crate::events::DialogAction::Accept(_) => "accepted",
+                  crate::events::DialogAction::Dismiss => "dismissed",
+                };
+                dialog_log.write().await.push(crate::state::DialogEvent {
+                  dialog_type: dialog_type.to_string(),
+                  message: message.clone(),
+                  action: action_str.to_string(),
+                });
+
+                emitter.emit(crate::events::PageEvent::Dialog(pending));
+              }
+            }
+          },
         }
       }
     });
@@ -2777,90 +2819,97 @@ impl<T: CdpWrap> CdpPage<T> {
     emitter: crate::events::EventEmitter,
     injected_script: Arc<InjectedScriptManager>,
   ) {
+    let io_shutdown = transport.io_shutdown_token();
     tokio::spawn(async move {
       let mut rx = transport.subscribe_events();
-      while let Ok(event) = rx.recv().await {
-        if let Some(ref expected_sid) = session_id {
-          let event_sid = event.get("sessionId").and_then(|v| v.as_str());
-          if event_sid != Some(&**expected_sid) {
-            continue;
-          }
-        }
+      loop {
+        tokio::select! {
+          _ = io_shutdown.cancelled() => break,
+          ev = rx.recv() => {
+            let Ok(event) = ev else { break };
+            if let Some(ref expected_sid) = session_id {
+              let event_sid = event.get("sessionId").and_then(|v| v.as_str());
+              if event_sid != Some(&**expected_sid) {
+                continue;
+              }
+            }
 
-        let method = event.get("method").and_then(|m| m.as_str()).unwrap_or("");
-        match method {
-          "Runtime.executionContextCreated" => {
-            if let Some(ctx) = event.get("params").and_then(|p| p.get("context")) {
-              let ctx_id = ctx.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0);
-              if let Some(aux) = ctx.get("auxData") {
-                let frame_id = aux.get("frameId").and_then(|v| v.as_str()).unwrap_or("");
-                let is_default = aux
-                  .get("isDefault")
-                  .and_then(serde_json::Value::as_bool)
-                  .unwrap_or(false);
-                if is_default && !frame_id.is_empty() {
-                  frame_contexts.write().await.insert(frame_id.to_string(), ctx_id);
+            let method = event.get("method").and_then(|m| m.as_str()).unwrap_or("");
+            match method {
+              "Runtime.executionContextCreated" => {
+                if let Some(ctx) = event.get("params").and_then(|p| p.get("context")) {
+                  let ctx_id = ctx.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0);
+                  if let Some(aux) = ctx.get("auxData") {
+                    let frame_id = aux.get("frameId").and_then(|v| v.as_str()).unwrap_or("");
+                    let is_default = aux
+                      .get("isDefault")
+                      .and_then(serde_json::Value::as_bool)
+                      .unwrap_or(false);
+                    if is_default && !frame_id.is_empty() {
+                      frame_contexts.write().await.insert(frame_id.to_string(), ctx_id);
+                    }
+                  }
                 }
-              }
-            }
-          },
-          "Runtime.executionContextDestroyed" => {
-            if let Some(ctx_id) = event
-              .get("params")
-              .and_then(|p| p.get("executionContextId"))
-              .and_then(serde_json::Value::as_i64)
-            {
-              let mut contexts = frame_contexts.write().await;
-              contexts.retain(|_, &mut v| v != ctx_id);
-            }
-          },
-          "Runtime.executionContextsCleared" => {
-            frame_contexts.write().await.clear();
-            injected_script.reset();
-          },
-          "Page.frameAttached" => {
-            if let Some(params) = event.get("params") {
-              emitter.emit(crate::events::PageEvent::FrameAttached(super::FrameInfo {
-                frame_id: params.get("frameId").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                parent_frame_id: params
-                  .get("parentFrameId")
-                  .and_then(|v| v.as_str())
-                  .map(std::string::ToString::to_string),
-                name: String::new(),
-                url: String::new(),
-              }));
-            }
-          },
-          "Page.frameDetached" => {
-            if let Some(fid) = event
-              .get("params")
-              .and_then(|p| p.get("frameId"))
-              .and_then(|v| v.as_str())
-            {
-              frame_contexts.write().await.remove(fid);
-              emitter.emit(crate::events::PageEvent::FrameDetached {
-                frame_id: fid.to_string(),
-              });
-            }
-          },
-          "Page.frameNavigated" => {
-            if let Some(frame) = event.get("params").and_then(|p| p.get("frame")) {
-              let is_main = frame.get("parentId").is_none();
-              if is_main {
+              },
+              "Runtime.executionContextDestroyed" => {
+                if let Some(ctx_id) = event
+                  .get("params")
+                  .and_then(|p| p.get("executionContextId"))
+                  .and_then(serde_json::Value::as_i64)
+                {
+                  let mut contexts = frame_contexts.write().await;
+                  contexts.retain(|_, &mut v| v != ctx_id);
+                }
+              },
+              "Runtime.executionContextsCleared" => {
+                frame_contexts.write().await.clear();
                 injected_script.reset();
-              }
-              emitter.emit(crate::events::PageEvent::FrameNavigated(super::FrameInfo {
-                frame_id: frame.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                parent_frame_id: frame
-                  .get("parentId")
+              },
+              "Page.frameAttached" => {
+                if let Some(params) = event.get("params") {
+                  emitter.emit(crate::events::PageEvent::FrameAttached(super::FrameInfo {
+                    frame_id: params.get("frameId").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    parent_frame_id: params
+                      .get("parentFrameId")
+                      .and_then(|v| v.as_str())
+                      .map(std::string::ToString::to_string),
+                    name: String::new(),
+                    url: String::new(),
+                  }));
+                }
+              },
+              "Page.frameDetached" => {
+                if let Some(fid) = event
+                  .get("params")
+                  .and_then(|p| p.get("frameId"))
                   .and_then(|v| v.as_str())
-                  .map(std::string::ToString::to_string),
-                name: frame.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                url: frame.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-              }));
+                {
+                  frame_contexts.write().await.remove(fid);
+                  emitter.emit(crate::events::PageEvent::FrameDetached {
+                    frame_id: fid.to_string(),
+                  });
+                }
+              },
+              "Page.frameNavigated" => {
+                if let Some(frame) = event.get("params").and_then(|p| p.get("frame")) {
+                  let is_main = frame.get("parentId").is_none();
+                  if is_main {
+                    injected_script.reset();
+                  }
+                  emitter.emit(crate::events::PageEvent::FrameNavigated(super::FrameInfo {
+                    frame_id: frame.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    parent_frame_id: frame
+                      .get("parentId")
+                      .and_then(|v| v.as_str())
+                      .map(std::string::ToString::to_string),
+                    name: frame.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    url: frame.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                  }));
+                }
+              },
+              _ => {},
             }
           },
-          _ => {},
         }
       }
     });
@@ -2928,59 +2977,66 @@ bc.reject=function(seq,err){var c=bc.cbs[seq];if(c){delete bc.cbs[seq];c.j(new E
     let t = self.transport.clone();
     let sid = self.session_id.clone();
     let fns = self.exposed_fns.clone();
+    let io_shutdown = self.transport.io_shutdown_token();
     tokio::spawn(async move {
       let mut rx = t.subscribe_events();
-      while let Ok(event) = rx.recv().await {
-        if let Some(ref expected_sid) = sid {
-          let event_sid = event.get("sessionId").and_then(|v| v.as_str());
-          if event_sid != Some(&**expected_sid) {
-            continue;
-          }
-        }
-        if event.get("method").and_then(|m| m.as_str()) != Some("Runtime.bindingCalled") {
-          continue;
-        }
-        if let Some(params) = event.get("params") {
-          let binding_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-          if binding_name != "__fd_binding__" {
-            continue;
-          }
+      loop {
+        tokio::select! {
+          _ = io_shutdown.cancelled() => break,
+          ev = rx.recv() => {
+            let Ok(event) = ev else { break };
+            if let Some(ref expected_sid) = sid {
+              let event_sid = event.get("sessionId").and_then(|v| v.as_str());
+              if event_sid != Some(&**expected_sid) {
+                continue;
+              }
+            }
+            if event.get("method").and_then(|m| m.as_str()) != Some("Runtime.bindingCalled") {
+              continue;
+            }
+            if let Some(params) = event.get("params") {
+              let binding_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+              if binding_name != "__fd_binding__" {
+                continue;
+              }
 
-          let payload_str = params.get("payload").and_then(|v| v.as_str()).unwrap_or("{}");
-          let payload: serde_json::Value = serde_json::from_str(payload_str).unwrap_or_default();
-          let fn_name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-          let seq = payload.get("seq").and_then(serde_json::Value::as_u64).unwrap_or(0);
-          let args: Vec<serde_json::Value> = payload
-            .get("args")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
+              let payload_str = params.get("payload").and_then(|v| v.as_str()).unwrap_or("{}");
+              let payload: serde_json::Value = serde_json::from_str(payload_str).unwrap_or_default();
+              let fn_name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+              let seq = payload.get("seq").and_then(serde_json::Value::as_u64).unwrap_or(0);
+              let args: Vec<serde_json::Value> = payload
+                .get("args")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
 
-          let maybe_fn = fns.read().await.get(&fn_name).cloned();
-          if let Some(callback) = maybe_fn {
-            let result = callback(args);
-            let deliver_js = format!(
-              "globalThis.__fd_bc.resolve({}, {})",
-              seq,
-              serde_json::to_string(&result).unwrap_or_else(|_| "null".into())
-            );
-            let _ = t
-              .send_command(
-                sid.as_deref(),
-                "Runtime.evaluate",
-                serde_json::json!({"expression": deliver_js}),
-              )
-              .await;
-          } else {
-            let deliver_js = format!("globalThis.__fd_bc.reject({seq}, 'Function not found: {fn_name}')");
-            let _ = t
-              .send_command(
-                sid.as_deref(),
-                "Runtime.evaluate",
-                serde_json::json!({"expression": deliver_js}),
-              )
-              .await;
-          }
+              let maybe_fn = fns.read().await.get(&fn_name).cloned();
+              if let Some(callback) = maybe_fn {
+                let result = callback(args);
+                let deliver_js = format!(
+                  "globalThis.__fd_bc.resolve({}, {})",
+                  seq,
+                  serde_json::to_string(&result).unwrap_or_else(|_| "null".into())
+                );
+                let _ = t
+                  .send_command(
+                    sid.as_deref(),
+                    "Runtime.evaluate",
+                    serde_json::json!({"expression": deliver_js}),
+                  )
+                  .await;
+              } else {
+                let deliver_js = format!("globalThis.__fd_bc.reject({seq}, 'Function not found: {fn_name}')");
+                let _ = t
+                  .send_command(
+                    sid.as_deref(),
+                    "Runtime.evaluate",
+                    serde_json::json!({"expression": deliver_js}),
+                  )
+                  .await;
+              }
+            }
+          },
         }
       }
     });
@@ -3089,8 +3145,13 @@ bc.reject=function(seq,err){var c=bc.cbs[seq];if(c){delete bc.cbs[seq];c.j(new E
     routes: Arc<tokio::sync::RwLock<Vec<crate::route::RegisteredRoute>>>,
     http_credentials: Arc<tokio::sync::RwLock<Option<(String, String)>>>,
   ) {
+    let io_shutdown = transport.io_shutdown_token();
     let mut rx = transport.subscribe_events();
-    while let Ok(event) = rx.recv().await {
+    loop {
+      tokio::select! {
+        _ = io_shutdown.cancelled() => break,
+        ev = rx.recv() => {
+          let Ok(event) = ev else { break };
       if let Some(ref expected_sid) = session_id {
         let event_sid = event.get("sessionId").and_then(|v| v.as_str());
         if event_sid != Some(&**expected_sid) {
@@ -3191,6 +3252,8 @@ bc.reject=function(seq,err){var c=bc.cbs[seq];if(c){delete bc.cbs[seq];c.j(new E
             serde_json::json!({"requestId": request_id}),
           )
           .await;
+      }
+        },
       }
     }
   }

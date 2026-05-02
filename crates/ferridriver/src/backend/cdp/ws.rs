@@ -7,6 +7,7 @@ use futures::{SinkExt, StreamExt};
 use std::path::Path;
 use std::sync::Arc;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_util::sync::CancellationToken;
 
 use super::transport::CdpDispatcher;
 use crate::error::FerriError;
@@ -14,6 +15,13 @@ use crate::error::FerriError;
 pub struct WsTransport {
   write_tx: tokio::sync::mpsc::Sender<Message>,
   dispatcher: Arc<CdpDispatcher>,
+  io_shutdown: CancellationToken,
+}
+
+impl Drop for WsTransport {
+  fn drop(&mut self) {
+    self.io_shutdown.cancel();
+  }
 }
 
 impl WsTransport {
@@ -49,27 +57,48 @@ impl WsTransport {
 
     let (write, read) = ws_stream.split();
     let dispatcher = Arc::new(CdpDispatcher::new());
+    let io_shutdown = CancellationToken::new();
 
     let (write_tx, mut write_rx) = tokio::sync::mpsc::channel::<Message>(64);
+    let writer_cancel = io_shutdown.clone();
     tokio::spawn(async move {
       let mut writer = write;
-      while let Some(msg) = write_rx.recv().await {
-        if writer.send(msg).await.is_err() {
-          break;
+      loop {
+        tokio::select! {
+          biased;
+          _ = writer_cancel.cancelled() => break,
+          msg = write_rx.recv() => {
+            let Some(msg) = msg else { break };
+            if writer.send(msg).await.is_err() {
+              break;
+            }
+          }
         }
       }
     });
 
     let dispatcher2 = dispatcher.clone();
+    let reader_cancel = io_shutdown.clone();
     tokio::spawn(async move {
       let mut read = read;
-      while let Some(Ok(msg)) = read.next().await {
-        let Message::Text(text) = msg else { continue };
-        dispatcher2.dispatch_message(text.as_bytes());
+      loop {
+        tokio::select! {
+          biased;
+          _ = reader_cancel.cancelled() => break,
+          frame = read.next() => {
+            let Some(Ok(msg)) = frame else { break };
+            let Message::Text(text) = msg else { continue };
+            dispatcher2.dispatch_message(text.as_bytes());
+          }
+        }
       }
     });
 
-    Ok(Self { write_tx, dispatcher })
+    Ok(Self {
+      write_tx,
+      dispatcher,
+      io_shutdown,
+    })
   }
 
   /// Spawn Chrome with `--remote-debugging-port` and connect via WebSocket.
@@ -168,6 +197,10 @@ impl super::transport::CdpTransport for WsTransport {
     notify: Arc<tokio::sync::Notify>,
   ) {
     self.dispatcher.register_lifecycle_tracker(session_id, state, notify);
+  }
+
+  fn io_shutdown_token(&self) -> CancellationToken {
+    self.io_shutdown.clone()
   }
 }
 
