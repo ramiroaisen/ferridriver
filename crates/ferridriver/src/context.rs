@@ -392,7 +392,7 @@ impl ContextRef {
     if let Some(page) = ctx.active_page() {
       page.grant_permissions(permissions, origin).await.map_err(Into::into)
     } else {
-      Err(crate::error::FerriError::Other("No page in context".into()))
+      Err(crate::error::FerriError::backend("No page in context"))
     }
   }
 

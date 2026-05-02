@@ -1,6 +1,6 @@
 //! Core automation primitives -- shared by MCP tools, BDD steps, and library consumers.
 //!
-//! All functions take `&AnyPage` or `&AnyElement` and return `Result<T, String>`.
+//! All functions take `&AnyPage` or `&AnyElement` and return `crate::Result<T>`.
 //! No MCP types, no server state -- pure browser automation logic.
 //!
 //! All JS operations go through the unified `window.__fd` runtime
@@ -118,6 +118,12 @@ impl std::fmt::Display for ClickGuardError {
   }
 }
 
+impl From<ClickGuardError> for crate::error::FerriError {
+  fn from(e: ClickGuardError) -> Self {
+    crate::error::FerriError::invalid_argument("element", e.to_string())
+  }
+}
+
 #[derive(Debug, Clone)]
 pub struct ScrollInfo {
   pub scroll_y: i64,
@@ -128,12 +134,12 @@ pub struct ScrollInfo {
 // ─── Runtime helper ─────────────────────────────────────────────────────────
 
 /// Ensure the unified runtime is injected, then evaluate JS.
-async fn rt_eval(page: &AnyPage, js: &str) -> Result<Option<serde_json::Value>, String> {
+async fn rt_eval(page: &AnyPage, js: &str) -> crate::Result<Option<serde_json::Value>> {
   page.evaluate(js).await
 }
 
 /// Ensure runtime + evaluate, return string result.
-async fn rt_eval_str(page: &AnyPage, js: &str) -> Result<String, String> {
+async fn rt_eval_str(page: &AnyPage, js: &str) -> crate::Result<String> {
   let val = rt_eval(page, js).await?;
   Ok(
     val
@@ -158,7 +164,7 @@ pub async fn resolve_element<S: std::hash::BuildHasher>(
   ref_map: &std::collections::HashMap<String, i64, S>,
   r#ref: Option<&str>,
   selector: Option<&str>,
-) -> Result<AnyElement, String> {
+) -> crate::Result<AnyElement> {
   if let Some(r) = r#ref {
     let backend_id = ref_map
       .get(r)
@@ -244,7 +250,7 @@ pub async fn check_click_guard(element: &AnyElement, page: &AnyPage) -> Result<(
 /// Returns `error:not<state>` when the non-force pre-check fails (the
 /// retry loop treats it as retriable), or a generic fill error when
 /// the JS `.value` / `.textContent` assignment fails.
-pub async fn fill(element: &AnyElement, page: &AnyPage, value: &str, force: bool) -> Result<(), String> {
+pub async fn fill(element: &AnyElement, page: &AnyPage, value: &str, force: bool) -> crate::Result<()> {
   if !force {
     let fd = page.injected_script().await?;
     let state_raw = element
@@ -258,7 +264,7 @@ pub async fn fill(element: &AnyElement, page: &AnyPage, value: &str, force: bool
       // Playwright-style retriable marker: `error:notvisible`,
       // `error:notenabled`, `error:noteditable`, or `error:notconnected`.
       // `retry_resolve!` treats `error:not*` as retry-until-deadline.
-      return Err(state_raw);
+      return Err(crate::error::FerriError::evaluation(state_raw));
     }
   }
   let escaped = value.replace('\\', "\\\\").replace('\'', "\\'");
@@ -279,7 +285,6 @@ pub async fn fill(element: &AnyElement, page: &AnyPage, value: &str, force: bool
         }}"
     ))
     .await
-    .map_err(|e| format!("Fill: {e}"))
 }
 
 // ─── Navigation ─────────────────────────────────────────────────────────────
@@ -289,7 +294,7 @@ pub async fn fill(element: &AnyElement, page: &AnyPage, value: &str, force: bool
 /// # Errors
 ///
 /// Returns an error if navigation fails or the page DOM remains empty after retries.
-pub async fn navigate_with_health_check(page: &AnyPage, url: &str) -> Result<(), String> {
+pub async fn navigate_with_health_check(page: &AnyPage, url: &str) -> crate::Result<()> {
   page.goto(url, crate::backend::NavLifecycle::Load, 30_000, None).await?;
 
   let url_lower = url.to_lowercase();
@@ -332,12 +337,12 @@ pub async fn navigate_with_health_check(page: &AnyPage, url: &str) -> Result<(),
 ///
 /// Returns an error if JS evaluation fails or the search pattern is invalid.
 ///
-pub async fn search_page(page: &AnyPage, opts: &SearchOptions) -> Result<SearchResult, String> {
-  let pattern = serde_json::to_string(&opts.pattern).map_err(|e| e.to_string())?;
+pub async fn search_page(page: &AnyPage, opts: &SearchOptions) -> crate::Result<SearchResult> {
+  let pattern = serde_json::to_string(&opts.pattern)?;
   let is_regex = if opts.regex { "true" } else { "false" };
   let case_sensitive = if opts.case_sensitive { "true" } else { "false" };
   let context_chars = opts.context_chars;
-  let css_scope = serde_json::to_string(&opts.css_scope).map_err(|e| e.to_string())?;
+  let css_scope = serde_json::to_string(&opts.css_scope)?;
   let max_results = opts.max_results;
 
   let fd = page.injected_script().await?;
@@ -348,7 +353,7 @@ pub async fn search_page(page: &AnyPage, opts: &SearchOptions) -> Result<SearchR
   let data: serde_json::Value = serde_json::from_str(&result_str).unwrap_or(serde_json::json!({}));
 
   if let Some(err) = data["error"].as_str() {
-    return Err(err.to_string());
+    return Err(crate::error::FerriError::evaluation(err));
   }
 
   let total = usize::try_from(data["total"].as_u64().unwrap_or(0)).unwrap_or(0);
@@ -413,7 +418,7 @@ pub fn format_search_results(result: &SearchResult, pattern: &str) -> String {
 ///
 /// Returns an error if JS evaluation fails or the selector is invalid.
 ///
-pub async fn find_elements(page: &AnyPage, opts: &FindElementsOptions) -> Result<FindResult, String> {
+pub async fn find_elements(page: &AnyPage, opts: &FindElementsOptions) -> crate::Result<FindResult> {
   // Rich selectors go through the selector engine
   if selectors::is_rich_selector(&opts.selector) {
     let matched = selectors::query_all(page, &opts.selector, None).await?;
@@ -434,8 +439,8 @@ pub async fn find_elements(page: &AnyPage, opts: &FindElementsOptions) -> Result
   }
 
   // Plain CSS: use runtime's findElementsCSS
-  let selector = serde_json::to_string(&opts.selector).map_err(|e| e.to_string())?;
-  let attributes = serde_json::to_string(&opts.attributes).map_err(|e| e.to_string())?;
+  let selector = serde_json::to_string(&opts.selector)?;
+  let attributes = serde_json::to_string(&opts.attributes)?;
   let max_results = opts.max_results;
   let include_text = if opts.include_text { "true" } else { "false" };
 
@@ -446,7 +451,7 @@ pub async fn find_elements(page: &AnyPage, opts: &FindElementsOptions) -> Result
   let data: serde_json::Value = serde_json::from_str(&result_str).unwrap_or(serde_json::json!({}));
 
   if let Some(err) = data["error"].as_str() {
-    return Err(err.to_string());
+    return Err(crate::error::FerriError::evaluation(err));
   }
 
   let total = usize::try_from(data["total"].as_u64().unwrap_or(0)).unwrap_or(0);
@@ -526,7 +531,7 @@ pub fn format_find_results(result: &FindResult, selector: &str) -> String {
 /// # Errors
 ///
 /// Returns an error if the element is not a select or the target option is not found.
-pub async fn select_option(element: &AnyElement, page: &AnyPage, target: &str) -> Result<SelectResult, String> {
+pub async fn select_option(element: &AnyElement, page: &AnyPage, target: &str) -> crate::Result<SelectResult> {
   let escaped = target.replace('\\', "\\\\").replace('\'', "\\'");
   let fd = page.injected_script().await?;
   let result_json = element
@@ -547,7 +552,7 @@ pub async fn select_option(element: &AnyElement, page: &AnyPage, target: &str) -
       let opts: Vec<&str> = avail.iter().filter_map(|v| v.as_str()).collect();
       let _ = std::fmt::Write::write_fmt(&mut msg, format_args!(" Available options: {}", opts.join(", ")));
     }
-    return Err(msg);
+    return Err(crate::error::FerriError::backend(msg));
   }
 
   Ok(SelectResult {
@@ -561,7 +566,7 @@ pub async fn select_option(element: &AnyElement, page: &AnyPage, target: &str) -
 /// # Errors
 ///
 /// Returns an error if the element is not a select or options cannot be retrieved.
-pub async fn get_dropdown_options(element: &AnyElement, page: &AnyPage) -> Result<Vec<DropdownOption>, String> {
+pub async fn get_dropdown_options(element: &AnyElement, page: &AnyPage) -> crate::Result<Vec<DropdownOption>> {
   let fd = page.injected_script().await?;
   let result_json = element
     .call_js_fn_value(&format!(
@@ -576,7 +581,7 @@ pub async fn get_dropdown_options(element: &AnyElement, page: &AnyPage) -> Resul
   let result: serde_json::Value = serde_json::from_str(&result_json).unwrap_or(serde_json::json!({}));
 
   if let Some(err) = result["error"].as_str() {
-    return Err(err.to_string());
+    return Err(crate::error::FerriError::evaluation(err));
   }
 
   let opts = result["options"]
@@ -604,7 +609,7 @@ pub async fn get_dropdown_options(element: &AnyElement, page: &AnyPage) -> Resul
 /// # Errors
 ///
 /// Returns an error if JS evaluation fails.
-pub async fn scroll_info(page: &AnyPage) -> Result<ScrollInfo, String> {
+pub async fn scroll_info(page: &AnyPage) -> crate::Result<ScrollInfo> {
   let fd = page.injected_script().await?;
   let result = rt_eval_str(page, &format!("{fd}.scrollInfo()")).await?;
   let parsed: serde_json::Value = serde_json::from_str(&result).unwrap_or(serde_json::json!({}));
@@ -638,7 +643,7 @@ pub async fn console_error_count(page: &AnyPage) -> i64 {
 /// # Errors
 ///
 /// Returns an error if JS evaluation fails.
-pub async fn extract_markdown(page: &AnyPage) -> Result<String, String> {
+pub async fn extract_markdown(page: &AnyPage) -> crate::Result<String> {
   let fd = page.injected_script().await?;
   rt_eval_str(page, &format!("{fd}.extractMarkdown()")).await
 }
@@ -651,7 +656,7 @@ pub async fn extract_markdown(page: &AnyPage) -> Result<String, String> {
 /// # Errors
 ///
 /// Returns an error if the file input element is not found or the files cannot be set.
-pub async fn upload_file(page: &AnyPage, selector: &str, paths: &[String]) -> Result<(), String> {
+pub async fn upload_file(page: &AnyPage, selector: &str, paths: &[String]) -> crate::Result<()> {
   page.set_file_input(selector, paths).await
 }
 
@@ -674,7 +679,7 @@ pub async fn upload_file(page: &AnyPage, selector: &str, paths: &[String]) -> Re
 pub async fn resolve_click_point(
   element: &AnyElement,
   position: Option<crate::options::Point>,
-) -> Result<(f64, f64), String> {
+) -> crate::Result<(f64, f64)> {
   let position_js = match position {
     Some(p) => format!("{{x:{},y:{}}}", p.x, p.y),
     None => "null".to_string(),
@@ -713,7 +718,7 @@ pub async fn resolve_click_point(
       let y = v.get("y").and_then(serde_json::Value::as_f64)?;
       Some((x, y))
     })
-    .ok_or_else(|| "could not compute click point".to_string())
+    .ok_or_else(|| crate::error::FerriError::backend("could not compute click point"))
 }
 
 /// Dispatch a click with the full Playwright [`crate::options::ClickOptions`]
@@ -747,9 +752,9 @@ pub async fn click_with_opts(
   element: &AnyElement,
   page: &AnyPage,
   opts: &crate::options::ClickOptions,
-) -> Result<(), String> {
+) -> crate::Result<()> {
   if !opts.is_force() {
-    check_click_guard(element, page).await.map_err(|e| e.to_string())?;
+    check_click_guard(element, page).await?;
     wait_for_actionable(element, page).await.ok();
   }
   let args = crate::backend::BackendClickArgs::from_options(opts);
@@ -783,12 +788,12 @@ pub async fn hover_with_opts(
   element: &AnyElement,
   page: &AnyPage,
   opts: &crate::options::HoverOptions,
-) -> Result<(), String> {
+) -> crate::Result<()> {
   if !opts.is_force() {
     wait_for_actionable(element, page).await.ok();
   }
   page.press_modifiers(&opts.modifiers).await?;
-  let result: Result<(), String> = if opts.is_trial() {
+  let result: crate::Result<()> = if opts.is_trial() {
     Ok(())
   } else {
     match resolve_click_point(element, opts.position).await {
@@ -834,12 +839,12 @@ pub async fn tap_with_opts(
   element: &AnyElement,
   page: &AnyPage,
   opts: &crate::options::TapOptions,
-) -> Result<(), String> {
+) -> crate::Result<()> {
   if !opts.is_force() {
     wait_for_actionable(element, page).await.ok();
   }
   page.press_modifiers(&opts.modifiers).await?;
-  let result: Result<(), String> = if opts.is_trial() {
+  let result: crate::Result<()> = if opts.is_trial() {
     Ok(())
   } else {
     match resolve_click_point(element, opts.position).await {
@@ -874,7 +879,7 @@ pub async fn select_options(
   element: &AnyElement,
   page: &AnyPage,
   values: &[crate::options::SelectOptionValue],
-) -> Result<Vec<String>, String> {
+) -> crate::Result<Vec<String>> {
   let fd = page.injected_script().await?;
   let values_json = serde_json::to_string(values).map_err(|e| format!("select_option serialize: {e}"))?;
   // The injected `selectOptions` wrapper takes `(el, ...descriptors)`
@@ -894,7 +899,7 @@ pub async fn select_options(
     .unwrap_or_default();
   let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
   if let Some(err) = parsed.get("error").and_then(|v| v.as_str()) {
-    return Err(err.to_string());
+    return Err(crate::error::FerriError::evaluation(err));
   }
   Ok(
     parsed
@@ -912,7 +917,7 @@ pub async fn select_options(
 /// # Errors
 ///
 /// Returns an error if the element is not actionable within the timeout.
-pub async fn wait_for_actionable(element: &AnyElement, page: &AnyPage) -> Result<(), String> {
+pub async fn wait_for_actionable(element: &AnyElement, page: &AnyPage) -> crate::Result<()> {
   let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
   let _ = page.ensure_engine_injected().await;
   let fd = "window.__fd";

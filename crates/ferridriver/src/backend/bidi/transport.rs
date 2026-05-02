@@ -11,6 +11,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, trace, warn};
 
+use crate::FerriError;
 use crate::backend::json_scan;
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -60,12 +61,12 @@ pub(crate) struct BidiTransport {
 
 impl BidiTransport {
   /// Connect to a `BiDi` WebSocket endpoint.
-  pub async fn connect(ws_url: &str) -> Result<Self, String> {
+  pub async fn connect(ws_url: &str) -> crate::Result<Self> {
     debug!("BiDi connecting to {ws_url}");
 
     let (ws_stream, _) = tokio_tungstenite::connect_async(ws_url)
       .await
-      .map_err(|e| format!("BiDi WebSocket connect to {ws_url}: {e}"))?;
+      .map_err(|e| FerriError::backend(format!("BiDi WebSocket connect to {ws_url}: {e}")))?;
 
     let (write, read) = ws_stream.split();
     let pending: Arc<std::sync::Mutex<PendingMap>> = Arc::new(std::sync::Mutex::new(FxHashMap::default()));
@@ -147,7 +148,7 @@ impl BidiTransport {
   }
 
   /// Send a `BiDi` command and await the response.
-  pub async fn send_command(&self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+  pub async fn send_command(&self, method: &str, params: serde_json::Value) -> crate::Result<serde_json::Value> {
     let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let (tx, rx) = oneshot::channel();
 
@@ -170,12 +171,12 @@ impl BidiTransport {
 
     // Await response with timeout
     match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
-      Ok(Ok(result)) => result.map_err(|e| e.to_string()),
+      Ok(Ok(result)) => result.map_err(|e| FerriError::protocol(method, e.to_string())),
       Ok(Err(_)) => Err("BiDi command response channel dropped".into()),
       Err(_) => {
         let mut map = self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         map.remove(&id);
-        Err(format!("BiDi command '{method}' timed out after 60s"))
+        Err(format!("BiDi command '{method}' timed out after 60s").into())
       },
     }
   }
@@ -184,7 +185,7 @@ impl BidiTransport {
   #[allow(dead_code)]
   /// Commands are written to the channel sequentially (they batch naturally),
   /// then all responses are awaited concurrently.
-  pub async fn send_batch(&self, commands: &[(&str, serde_json::Value)]) -> Vec<Result<serde_json::Value, String>> {
+  pub async fn send_batch(&self, commands: &[(&str, serde_json::Value)]) -> Vec<crate::Result<serde_json::Value>> {
     let mut receivers = Vec::with_capacity(commands.len());
 
     for (method, params) in commands {
@@ -212,7 +213,7 @@ impl BidiTransport {
     for recv in receivers {
       match recv {
         Ok(rx) => match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
-          Ok(Ok(result)) => results.push(result.map_err(|e| e.to_string())),
+          Ok(Ok(result)) => results.push(result.map_err(|e| FerriError::protocol("BiDi batch", e.to_string()))),
           Ok(Err(_)) => results.push(Err("BiDi batch response channel dropped".into())),
           Err(_) => results.push(Err("BiDi batch command timed out after 60s".into())),
         },

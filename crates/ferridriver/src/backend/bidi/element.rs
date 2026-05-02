@@ -33,7 +33,7 @@ impl BidiElement {
   /// The element is passed both as `this` (for `function() { this.value }` style)
   /// and as the first argument (for `(el) => el.value` style).
   /// This matches CDP's `callFunctionOn` which binds `this` to the target object.
-  async fn call_fn(&self, func: &str) -> Result<serde_json::Value, String> {
+  async fn call_fn(&self, func: &str) -> crate::Result<serde_json::Value> {
     self
       .session
       .transport
@@ -52,7 +52,7 @@ impl BidiElement {
   }
 
   /// Call a JS function and parse the evaluate result to a JSON value.
-  async fn call_fn_value(&self, func: &str) -> Result<Option<serde_json::Value>, String> {
+  async fn call_fn_value(&self, func: &str) -> crate::Result<Option<serde_json::Value>> {
     let result = self.call_fn(func).await?;
     let eval_result: EvaluateResult =
       serde_json::from_value(result).map_err(|e| format!("BiDi element call_fn parse: {e}"))?;
@@ -60,13 +60,13 @@ impl BidiElement {
     match eval_result {
       EvaluateResult::Success { result } => Ok(result.to_json()),
       EvaluateResult::Exception { exception_details } => {
-        Err(format!("JS error on element: {}", exception_details.text))
+        Err(format!("JS error on element: {}", exception_details.text).into())
       },
     }
   }
 
   /// Get the element's bounding box.
-  async fn bounding_box(&self) -> Result<(f64, f64, f64, f64), String> {
+  async fn bounding_box(&self) -> crate::Result<(f64, f64, f64, f64)> {
     let result = self
       .call_fn_value(
         "(el) => { const r = el.getBoundingClientRect(); return {x: r.x, y: r.y, w: r.width, h: r.height}; }",
@@ -84,7 +84,7 @@ impl BidiElement {
     Ok((x, y, w, h))
   }
 
-  pub async fn click(&self) -> Result<(), String> {
+  pub async fn click(&self) -> crate::Result<()> {
     self.scroll_into_view().await?;
     let (x, y, w, h) = self.bounding_box().await?;
     let cx = x + w / 2.0;
@@ -98,7 +98,7 @@ impl BidiElement {
     Ok(())
   }
 
-  pub async fn dblclick(&self) -> Result<(), String> {
+  pub async fn dblclick(&self) -> crate::Result<()> {
     self.scroll_into_view().await?;
     let (x, y, w, h) = self.bounding_box().await?;
     let cx = x + w / 2.0;
@@ -114,7 +114,7 @@ impl BidiElement {
     Ok(())
   }
 
-  pub async fn hover(&self) -> Result<(), String> {
+  pub async fn hover(&self) -> crate::Result<()> {
     self.scroll_into_view().await?;
     let (x, y, w, h) = self.bounding_box().await?;
     let cx = x + w / 2.0;
@@ -127,7 +127,7 @@ impl BidiElement {
     Ok(())
   }
 
-  pub async fn type_str(&self, text: &str) -> Result<(), String> {
+  pub async fn type_str(&self, text: &str) -> crate::Result<()> {
     // Click to focus first
     self.click().await?;
     self
@@ -138,7 +138,7 @@ impl BidiElement {
     Ok(())
   }
 
-  pub async fn call_js_fn(&self, function: &str) -> Result<(), String> {
+  pub async fn call_js_fn(&self, function: &str) -> crate::Result<()> {
     let result = self.call_fn(function).await?;
     let eval_result: EvaluateResult =
       serde_json::from_value(result).map_err(|e| format!("BiDi element call_js_fn parse: {e}"))?;
@@ -146,23 +146,23 @@ impl BidiElement {
     match eval_result {
       EvaluateResult::Success { .. } => Ok(()),
       EvaluateResult::Exception { exception_details } => {
-        Err(format!("JS error on element: {}", exception_details.text))
+        Err(format!("JS error on element: {}", exception_details.text).into())
       },
     }
   }
 
-  pub async fn call_js_fn_value(&self, function: &str) -> Result<Option<serde_json::Value>, String> {
+  pub async fn call_js_fn_value(&self, function: &str) -> crate::Result<Option<serde_json::Value>> {
     self.call_fn_value(function).await
   }
 
-  pub async fn scroll_into_view(&self) -> Result<(), String> {
+  pub async fn scroll_into_view(&self) -> crate::Result<()> {
     let _ = self
       .call_fn("(el) => el.scrollIntoView({block: 'center', inline: 'center'})")
       .await;
     Ok(())
   }
 
-  pub async fn screenshot(&self, format: ImageFormat) -> Result<Vec<u8>, String> {
+  pub async fn screenshot(&self, format: ImageFormat) -> crate::Result<Vec<u8>> {
     let format_type = match format {
       ImageFormat::Png => "image/png",
       ImageFormat::Jpeg => "image/jpeg",
@@ -185,9 +185,9 @@ impl BidiElement {
     let data_str = result
       .get("data")
       .and_then(|v| v.as_str())
-      .ok_or("Element screenshot: missing data")?;
+      .ok_or_else(|| crate::error::FerriError::backend("Element screenshot: missing data"))?;
     base64::engine::general_purpose::STANDARD
       .decode(data_str)
-      .map_err(|e| format!("Element screenshot base64 decode: {e}"))
+      .map_err(|e| crate::error::FerriError::backend(format!("Element screenshot base64 decode: {e}")))
   }
 }

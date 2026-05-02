@@ -36,7 +36,7 @@ pub trait StepDef: Send + Sync {
     caps: &regex::Captures<'_>,
     data_table: Option<&[Vec<String>]>,
     vars: &mut HashMap<String, String>,
-  ) -> Result<Option<serde_json::Value>, String>;
+  ) -> crate::Result<Option<serde_json::Value>>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
@@ -94,7 +94,7 @@ pub fn js_escape(s: &str) -> String {
 ///
 /// Returns an error if the element cannot be found using the given selector,
 /// or if the underlying browser query fails.
-pub async fn find(page: &Arc<Page>, selector: &str) -> Result<crate::backend::AnyElement, String> {
+pub async fn find(page: &Arc<Page>, selector: &str) -> crate::Result<crate::backend::AnyElement> {
   let inner = page.inner();
   if crate::selectors::is_rich_selector(selector) {
     // BDD step `find` is page-level: always main frame.

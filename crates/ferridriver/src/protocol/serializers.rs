@@ -723,7 +723,7 @@ impl<'de> Visitor<'de> for SerializedValueVisitor {
   }
 }
 
-fn decode_tagged_object(mut bag: serde_json::Map<String, serde_json::Value>) -> Result<SerializedValue, String> {
+fn decode_tagged_object(mut bag: serde_json::Map<String, serde_json::Value>) -> crate::Result<SerializedValue> {
   // The tag precedence mirrors Playwright's own deserializer
   // (`ref` > `v` > rich types > `a` / `o` > `h` > typed / array
   // buffer). See
@@ -792,10 +792,13 @@ fn decode_tagged_object(mut bag: serde_json::Map<String, serde_json::Value>) -> 
     let ab: ArrayBufferValue = serde_json::from_value(v).map_err(|err| err.to_string())?;
     return Ok(SerializedValue::ArrayBuffer(ab));
   }
-  Err(format!(
-    "SerializedValue: no recognized tag in object (keys: {:?})",
-    bag.keys().collect::<Vec<_>>()
-  ))
+  Err(
+    format!(
+      "SerializedValue: no recognized tag in object (keys: {:?})",
+      bag.keys().collect::<Vec<_>>()
+    )
+    .into(),
+  )
 }
 
 // ── SerializationContext ────────────────────────────────────────────────────

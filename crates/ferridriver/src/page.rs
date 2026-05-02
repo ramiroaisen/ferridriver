@@ -421,8 +421,8 @@ impl Page {
         let handle = crate::element_handle::ElementHandle::from_any_element(Arc::clone(self), element).await?;
         Ok(Some(handle))
       },
-      Err(err) if is_element_not_found(&err) => Ok(None),
-      Err(err) => Err(crate::error::FerriError::from(err)),
+      Err(err) if is_element_not_found_err(&err) => Ok(None),
+      Err(err) => Err(err),
     }
   }
 
@@ -961,8 +961,7 @@ impl Page {
       if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
       }
-      std::fs::write(path, &bytes)
-        .map_err(|e| crate::error::FerriError::Other(format!("screenshot write {}: {e}", path.display())))?;
+      std::fs::write(path, &bytes).map_err(crate::error::FerriError::from)?;
     }
     Ok(bytes)
   }
@@ -1250,7 +1249,7 @@ impl Page {
       let mut state = self
         .emulated_media
         .lock()
-        .map_err(|e| crate::error::FerriError::Other(format!("emulated_media lock poisoned: {e}")))?;
+        .map_err(|e| crate::error::FerriError::backend(format!("emulated_media lock poisoned: {e}")))?;
       if opts.media.is_specified() {
         state.media = opts.media.clone();
       }
@@ -1820,8 +1819,7 @@ impl Page {
     async move {
       events
         .wait_for(|e| matches!(e, PageEvent::Load | PageEvent::DomContentLoaded), timeout)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
       Ok(())
     }
   }
@@ -1845,8 +1843,7 @@ impl Page {
           move |e| matches!(e, PageEvent::Response(r) if r.url().contains(&pattern)),
           timeout,
         )
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
       match event {
         PageEvent::Response(r) => Ok(r),
         _ => Err("Unexpected event type".into()),
@@ -1873,8 +1870,7 @@ impl Page {
           move |e| matches!(e, PageEvent::Request(r) if r.url().contains(&pattern)),
           timeout,
         )
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
       match event {
         PageEvent::Request(r) => Ok(r),
         _ => Err("Unexpected event type".into()),
@@ -1896,8 +1892,7 @@ impl Page {
     async move {
       let event = events
         .wait_for(|e| matches!(e, PageEvent::Download(_)), timeout)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
       match event {
         PageEvent::Download(d) => Ok(d),
         _ => Err("Unexpected event type".into()),
@@ -1936,8 +1931,7 @@ impl Page {
         move |e| matches!(e, PageEvent::Download(d) if pattern.as_ref().is_none_or(|p| d.url.contains(p))),
         timeout_ms.unwrap_or(self.default_timeout()),
       )
-      .await
-      .map_err(|e| e.to_string())?;
+      .await?;
     match event {
       PageEvent::Download(d) => Ok(d),
       _ => Err("Unexpected event type".into()),
@@ -1961,8 +1955,7 @@ impl Page {
         move |e| matches!(e, PageEvent::Request(r) if matcher.matches(r.url())),
         timeout_ms.unwrap_or(self.default_timeout()),
       )
-      .await
-      .map_err(|e| e.to_string())?;
+      .await?;
     match event {
       PageEvent::Request(r) => Ok(r),
       _ => Err("Unexpected event type".into()),
@@ -1986,8 +1979,7 @@ impl Page {
         move |e| matches!(e, PageEvent::Response(r) if matcher.matches(r.url())),
         timeout_ms.unwrap_or(self.default_timeout()),
       )
-      .await
-      .map_err(|e| e.to_string())?;
+      .await?;
     match event {
       PageEvent::Response(r) => Ok(r),
       _ => Err("Unexpected event type".into()),
@@ -2547,6 +2539,10 @@ impl Touchscreen<'_> {
 fn is_element_not_found(err: &str) -> bool {
   let lower = err.to_ascii_lowercase();
   lower.contains("not found") || lower.contains("no element found")
+}
+
+fn is_element_not_found_err(err: &crate::error::FerriError) -> bool {
+  is_element_not_found(&err.to_string())
 }
 
 #[cfg(test)]

@@ -15,6 +15,7 @@ use super::element::BidiElement;
 use super::input;
 use super::session::BidiSession;
 use super::types::EvaluateResult;
+use crate::FerriError;
 use crate::backend::{
   AnyElement, AxNodeData, AxProperty, CookieData, FrameInfo, ImageFormat, MetricData, NavLifecycle, ScreenshotOpts,
 };
@@ -56,7 +57,7 @@ impl InjectedScriptManager {
     self.injected.store(false, Ordering::Relaxed);
   }
 
-  async fn ensure(&self, page: &BidiPage) -> Result<(), String> {
+  async fn ensure(&self, page: &BidiPage) -> crate::Result<()> {
     if !self.injected.load(Ordering::Relaxed) {
       let full_check_js = crate::selectors::build_lazy_inject_js();
       let _ = page
@@ -96,18 +97,18 @@ impl BidiPage {
   }
 
   /// Helper: send a `BiDi` command.
-  async fn cmd(&self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+  async fn cmd(&self, method: &str, params: serde_json::Value) -> crate::Result<serde_json::Value> {
     self.session.transport.send_command(method, params).await
   }
 
-  pub(crate) fn is_retryable_context_error(err: &str) -> bool {
-    err.contains("DiscardedBrowsingContextError")
-      || err.contains("BrowsingContext does no longer exist")
-      || err.contains("BiDi error 'no such frame'")
-      || err.contains("BiDi error 'no such window'")
+  pub(crate) fn is_retryable_context_error(message: &str) -> bool {
+    message.contains("DiscardedBrowsingContextError")
+      || message.contains("BrowsingContext does no longer exist")
+      || message.contains("BiDi error 'no such frame'")
+      || message.contains("BiDi error 'no such window'")
   }
 
-  pub async fn wait_until_ready(&self) -> Result<(), String> {
+  pub async fn wait_until_ready(&self) -> crate::Result<()> {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
 
     loop {
@@ -124,7 +125,7 @@ impl BidiPage {
         .await
       {
         Ok(_) => return Ok(()),
-        Err(err) if Self::is_retryable_context_error(&err) && tokio::time::Instant::now() < deadline => {
+        Err(err) if Self::is_retryable_context_error(&err.to_string()) && tokio::time::Instant::now() < deadline => {
           tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         },
         Err(err) => return Err(err),
@@ -142,7 +143,7 @@ impl BidiPage {
   }
 
   /// Helper: evaluate JS and parse the result.
-  async fn eval_internal(&self, expression: &str, context: &str) -> Result<Option<serde_json::Value>, String> {
+  async fn eval_internal(&self, expression: &str, context: &str) -> crate::Result<Option<serde_json::Value>> {
     let result = self
       .cmd(
         "script.evaluate",
@@ -155,25 +156,24 @@ impl BidiPage {
       )
       .await?;
 
-    let eval_result: EvaluateResult =
-      serde_json::from_value(result).map_err(|e| format!("BiDi evaluate parse: {e}"))?;
+    let eval_result: EvaluateResult = serde_json::from_value(result).map_err(FerriError::from)?;
 
     match eval_result {
       EvaluateResult::Success { result } => Ok(result.to_json()),
-      EvaluateResult::Exception { exception_details } => Err(format!("JS error: {}", exception_details.text)),
+      EvaluateResult::Exception { exception_details } => Err(format!("JS error: {}", exception_details.text).into()),
     }
   }
 
   // ── Frames ──────────────────────────────────────────────────────────────
 
-  pub async fn get_frame_tree(&self) -> Result<Vec<FrameInfo>, String> {
+  pub async fn get_frame_tree(&self) -> crate::Result<Vec<FrameInfo>> {
     let result = self
       .cmd("browsingContext.getTree", json!({"root": &*self.context_id}))
       .await?;
     let contexts = result
       .get("contexts")
       .and_then(|v| v.as_array())
-      .ok_or("getTree: missing contexts")?;
+      .ok_or_else(|| FerriError::backend("getTree: missing contexts"))?;
 
     let mut frames = Vec::new();
     for ctx in contexts {
@@ -205,7 +205,7 @@ impl BidiPage {
     Ok(frames)
   }
 
-  pub async fn evaluate_in_frame(&self, expression: &str, frame_id: &str) -> Result<Option<serde_json::Value>, String> {
+  pub async fn evaluate_in_frame(&self, expression: &str, frame_id: &str) -> crate::Result<Option<serde_json::Value>> {
     // In BiDi, frames ARE browsing contexts
     self.eval_internal(expression, frame_id).await
   }
@@ -218,7 +218,7 @@ impl BidiPage {
     lifecycle: NavLifecycle,
     timeout_ms: u64,
     referer: Option<&str>,
-  ) -> Result<(), String> {
+  ) -> crate::Result<()> {
     self.injected_script.reset();
 
     // WebDriver BiDi `browsingContext.navigate` has no `referrer` param —
@@ -267,11 +267,11 @@ impl BidiPage {
     match result {
       Ok(Ok(_)) => Ok(()),
       Ok(Err(e)) => Err(e),
-      Err(_) => Err(format!("Navigation to '{url}' timed out after {timeout_ms}ms")),
+      Err(_) => Err(FerriError::timeout(format!("Navigation to '{url}'"), timeout_ms)),
     }
   }
 
-  pub async fn wait_for_navigation(&self) -> Result<(), String> {
+  pub async fn wait_for_navigation(&self) -> crate::Result<()> {
     // Subscribe to load event for this context and wait for it
     let mut rx = self.session.transport.subscribe_events();
     let ctx = self.context_id.clone();
@@ -285,15 +285,15 @@ impl BidiPage {
           }
         }
       }
-      Err("Event channel closed".to_string())
+      Err(FerriError::backend("Event channel closed"))
     });
     match timeout.await {
       Ok(result) => result,
-      Err(_) => Err("wait_for_navigation timed out after 30s".into()),
+      Err(_) => Err(FerriError::timeout("wait_for_navigation", 30_000)),
     }
   }
 
-  pub async fn reload(&self, lifecycle: NavLifecycle, timeout_ms: u64) -> Result<(), String> {
+  pub async fn reload(&self, lifecycle: NavLifecycle, timeout_ms: u64) -> crate::Result<()> {
     self.injected_script.reset();
     let wait = Self::lifecycle_to_wait(lifecycle);
     let result = tokio::time::timeout(
@@ -311,11 +311,11 @@ impl BidiPage {
     match result {
       Ok(Ok(_)) => Ok(()),
       Ok(Err(e)) => Err(e),
-      Err(_) => Err(format!("Reload timed out after {timeout_ms}ms")),
+      Err(_) => Err(FerriError::timeout("browsingContext.reload", timeout_ms)),
     }
   }
 
-  pub async fn go_back(&self, _lifecycle: NavLifecycle, timeout_ms: u64) -> Result<(), String> {
+  pub async fn go_back(&self, _lifecycle: NavLifecycle, timeout_ms: u64) -> crate::Result<()> {
     let result = tokio::time::timeout(
       std::time::Duration::from_millis(timeout_ms),
       self.cmd(
@@ -335,7 +335,7 @@ impl BidiPage {
     }
   }
 
-  pub async fn go_forward(&self, _lifecycle: NavLifecycle, timeout_ms: u64) -> Result<(), String> {
+  pub async fn go_forward(&self, _lifecycle: NavLifecycle, timeout_ms: u64) -> crate::Result<()> {
     let result = tokio::time::timeout(
       std::time::Duration::from_millis(timeout_ms),
       self.cmd(
@@ -355,14 +355,14 @@ impl BidiPage {
     }
   }
 
-  pub async fn url(&self) -> Result<Option<String>, String> {
+  pub async fn url(&self) -> crate::Result<Option<String>> {
     self
       .eval_internal("location.href", &self.context_id)
       .await
       .map(|v| v.and_then(|val| val.as_str().map(String::from)))
   }
 
-  pub async fn title(&self) -> Result<Option<String>, String> {
+  pub async fn title(&self) -> crate::Result<Option<String>> {
     self
       .eval_internal("document.title", &self.context_id)
       .await
@@ -371,37 +371,37 @@ impl BidiPage {
 
   // ── JavaScript ──────────────────────────────────────────────────────────
 
-  pub async fn injected_script(&self) -> Result<String, String> {
+  pub async fn injected_script(&self) -> crate::Result<String> {
     self.ensure_engine_injected().await?;
     Ok("window.__fd".to_string())
   }
 
   /// Ensures the selector engine is injected into the current execution context.
   /// Idempotent and navigation-aware.
-  pub async fn ensure_engine_injected(&self) -> Result<(), String> {
+  pub async fn ensure_engine_injected(&self) -> crate::Result<()> {
     self.injected_script.ensure(self).await
   }
 
-  pub async fn evaluate(&self, expression: &str) -> Result<Option<serde_json::Value>, String> {
+  pub async fn evaluate(&self, expression: &str) -> crate::Result<Option<serde_json::Value>> {
     self.eval_internal(expression, &self.context_id).await
   }
 
   // ── Elements ────────────────────────────────────────────────────────────
 
-  pub async fn find_element(&self, selector: &str) -> Result<AnyElement, String> {
+  pub async fn find_element(&self, selector: &str) -> crate::Result<AnyElement> {
     self.ensure_engine_injected().await?;
     let sel_js = crate::selectors::build_selone_js(selector, "window.__fd")?;
     self
       .evaluate_to_element(&sel_js, None)
       .await
-      .map_err(|_| format!("No element found for selector: {selector}"))
+      .map_err(|_| FerriError::backend(format!("No element found for selector: {selector}")))
   }
 
   /// `BiDi`: a "frame" is a browsing context. When `frame_id` is `Some`
   /// it overrides the page's default `context_id` so element resolution
   /// runs inside the iframe's realm. Mirrors Playwright's `BiDi` backend
   /// (`/tmp/playwright/packages/playwright-core/src/server/bidi/bidiFrame.ts`).
-  pub async fn evaluate_to_element(&self, js: &str, frame_id: Option<&str>) -> Result<AnyElement, String> {
+  pub async fn evaluate_to_element(&self, js: &str, frame_id: Option<&str>) -> crate::Result<AnyElement> {
     // The JS can be either an expression or a function.
     // Use script.evaluate for expressions, script.callFunction for functions.
     let is_function = js.trim_start().starts_with("function") || js.trim_start().starts_with('(');
@@ -434,14 +434,13 @@ impl BidiPage {
         .await?
     };
 
-    let eval_result: EvaluateResult =
-      serde_json::from_value(result).map_err(|e| format!("BiDi evaluate_to_element parse: {e}"))?;
+    let eval_result: EvaluateResult = serde_json::from_value(result).map_err(FerriError::from)?;
 
     match eval_result {
       EvaluateResult::Success { result: remote_val } => {
         let shared_ref = remote_val
           .as_shared_reference()
-          .ok_or("evaluate_to_element: result is not a DOM node")?;
+          .ok_or_else(|| FerriError::backend("evaluate_to_element: result is not a DOM node"))?;
         // Element belongs to the realm we evaluated in.
         let owning_ctx: Arc<str> = match frame_id {
           Some(fid) => Arc::from(fid),
@@ -454,21 +453,21 @@ impl BidiPage {
         )))
       },
       EvaluateResult::Exception { exception_details } => {
-        Err(format!("JS error in evaluate_to_element: {}", exception_details.text))
+        Err(format!("JS error in evaluate_to_element: {}", exception_details.text).into())
       },
     }
   }
 
   // ── Content ─────────────────────────────────────────────────────────────
 
-  pub async fn content(&self) -> Result<String, String> {
+  pub async fn content(&self) -> crate::Result<String> {
     let result = self
       .eval_internal("document.documentElement.outerHTML", &self.context_id)
       .await?;
     Ok(result.and_then(|v| v.as_str().map(String::from)).unwrap_or_default())
   }
 
-  pub async fn set_content(&self, html: &str) -> Result<(), String> {
+  pub async fn set_content(&self, html: &str) -> crate::Result<()> {
     self
       .cmd(
         "script.callFunction",
@@ -486,7 +485,7 @@ impl BidiPage {
 
   // ── Screenshots ─────────────────────────────────────────────────────────
 
-  pub async fn screenshot(&self, opts: ScreenshotOpts) -> Result<Vec<u8>, String> {
+  pub async fn screenshot(&self, opts: ScreenshotOpts) -> crate::Result<Vec<u8>> {
     // BiDi-specific refusals for knobs Firefox has no protocol for.
     if opts.omit_background {
       return Err("BiDi/Firefox does not support `omitBackground` screenshots — no BiDi command exposes the transparent-background override.".into());
@@ -526,16 +525,16 @@ impl BidiPage {
     let data_str = result?
       .get("data")
       .and_then(|v| v.as_str().map(String::from))
-      .ok_or("Screenshot: missing data")?;
+      .ok_or_else(|| FerriError::backend("Screenshot: missing data"))?;
     base64::engine::general_purpose::STANDARD
       .decode(data_str)
-      .map_err(|e| format!("Screenshot base64 decode: {e}"))
+      .map_err(|e| FerriError::backend(format!("Screenshot base64 decode: {e}")))
   }
 
   /// Run a JS function-declaration expression via
   /// `script.callFunction` in this page's browsing context. Used by
   /// `screenshot()` to install and tear down DOM overrides.
-  async fn eval_bidi_function(&self, function_declaration: &str) -> Result<(), String> {
+  async fn eval_bidi_function(&self, function_declaration: &str) -> crate::Result<()> {
     self
       .cmd(
         "script.callFunction",
@@ -550,7 +549,7 @@ impl BidiPage {
       .map(|_| ())
   }
 
-  async fn screenshot_install_style(&self, opts: &ScreenshotOpts) -> Result<bool, String> {
+  async fn screenshot_install_style(&self, opts: &ScreenshotOpts) -> crate::Result<bool> {
     let css = crate::backend::screenshot_js::build_css(opts);
     if css.is_empty() {
       return Ok(false);
@@ -559,7 +558,7 @@ impl BidiPage {
     self.eval_bidi_function(&install).await.map(|()| true)
   }
 
-  async fn screenshot_install_mask(&self, opts: &ScreenshotOpts) -> Result<bool, String> {
+  async fn screenshot_install_mask(&self, opts: &ScreenshotOpts) -> crate::Result<bool> {
     if let Some(js) = crate::backend::screenshot_js::install_mask_js(opts) {
       let wrapped = format!("() => {{ {js}; }}");
       self.eval_bidi_function(&wrapped).await.map(|()| true)
@@ -598,7 +597,7 @@ impl BidiPage {
     params
   }
 
-  pub async fn screenshot_element(&self, selector: &str, format: ImageFormat) -> Result<Vec<u8>, String> {
+  pub async fn screenshot_element(&self, selector: &str, format: ImageFormat) -> crate::Result<Vec<u8>> {
     // Find the element first
     let elem = self.find_element(selector).await?;
     let shared_id = match &elem {
@@ -626,19 +625,19 @@ impl BidiPage {
     let data_str = result
       .get("data")
       .and_then(|v| v.as_str())
-      .ok_or("Screenshot: missing data")?;
+      .ok_or_else(|| FerriError::backend("Screenshot: missing data"))?;
     base64::engine::general_purpose::STANDARD
       .decode(data_str)
-      .map_err(|e| format!("Screenshot base64 decode: {e}"))
+      .map_err(|e| FerriError::backend(format!("Screenshot base64 decode: {e}")))
   }
 
   // ── Accessibility ───────────────────────────────────────────────────────
 
-  pub async fn accessibility_tree(&self) -> Result<Vec<AxNodeData>, String> {
+  pub async fn accessibility_tree(&self) -> crate::Result<Vec<AxNodeData>> {
     self.accessibility_tree_with_depth(-1).await
   }
 
-  pub async fn accessibility_tree_with_depth(&self, max_depth: i32) -> Result<Vec<AxNodeData>, String> {
+  pub async fn accessibility_tree_with_depth(&self, max_depth: i32) -> crate::Result<Vec<AxNodeData>> {
     let fd = self.injected_script().await?;
     // Use the shared JS accessibility tree helper from window.__fd.accessibilityTree().
     // This uses Playwright's ARIA role/name computation and tags elements with data-fdref
@@ -653,8 +652,7 @@ impl BidiPage {
     let json_str = result
       .and_then(|v| v.as_str().map(String::from))
       .unwrap_or_else(|| "[]".into());
-    let arr: Vec<serde_json::Value> =
-      serde_json::from_str(&json_str).map_err(|e| format!("accessibility_tree parse: {e}"))?;
+    let arr: Vec<serde_json::Value> = serde_json::from_str(&json_str).map_err(FerriError::from)?;
 
     let mut nodes = Vec::with_capacity(arr.len());
     for item in &arr {
@@ -741,14 +739,14 @@ impl BidiPage {
 
   // ── Input ───────────────────────────────────────────────────────────────
 
-  pub async fn click_at(&self, x: f64, y: f64) -> Result<(), String> {
+  pub async fn click_at(&self, x: f64, y: f64) -> crate::Result<()> {
     self
       .cmd("input.performActions", input::click(&self.context_id, x, y))
       .await?;
     Ok(())
   }
 
-  pub async fn click_at_opts(&self, x: f64, y: f64, button: &str, click_count: u32) -> Result<(), String> {
+  pub async fn click_at_opts(&self, x: f64, y: f64, button: &str, click_count: u32) -> crate::Result<()> {
     let btn = input::button_name_to_id(button);
     self
       .cmd(
@@ -759,7 +757,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn click_at_with(&self, x: f64, y: f64, args: &super::super::BackendClickArgs) -> Result<(), String> {
+  pub async fn click_at_with(&self, x: f64, y: f64, args: &super::super::BackendClickArgs) -> crate::Result<()> {
     self
       .cmd(
         "input.performActions",
@@ -769,7 +767,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn hover_at_with(&self, x: f64, y: f64, args: &super::super::BackendHoverArgs) -> Result<(), String> {
+  pub async fn hover_at_with(&self, x: f64, y: f64, args: &super::super::BackendHoverArgs) -> crate::Result<()> {
     self
       .cmd(
         "input.performActions",
@@ -785,16 +783,16 @@ impl BidiPage {
   /// for the same reason. Returns a typed `unsupported:` error that
   /// the caller surfaces as [`crate::error::FerriError::Unsupported`].
   #[allow(clippy::unused_async, clippy::unused_self)]
-  pub async fn tap_at_with(&self, _x: f64, _y: f64, _args: &super::super::BackendTapArgs) -> Result<(), String> {
-    Err(
-      "unsupported: tap is not available on the BiDi backend — WebDriver BiDi's input.performActions \
+  pub async fn tap_at_with(&self, _x: f64, _y: f64, _args: &super::super::BackendTapArgs) -> crate::Result<()> {
+    Err(FerriError::Unsupported(
+      "tap is not available on the BiDi backend — WebDriver BiDi's input.performActions \
          pointerType has no 'touch' value in the stable spec (Playwright's own BiDi backend leaves \
          Touchscreen unimplemented for the same reason). Use the cdp-pipe or cdp-raw backend for tap."
-        .to_string(),
-    )
+        .into(),
+    ))
   }
 
-  pub async fn press_modifiers(&self, mods: &[crate::options::Modifier]) -> Result<(), String> {
+  pub async fn press_modifiers(&self, mods: &[crate::options::Modifier]) -> crate::Result<()> {
     if mods.is_empty() {
       return Ok(());
     }
@@ -804,7 +802,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn release_modifiers(&self, mods: &[crate::options::Modifier]) -> Result<(), String> {
+  pub async fn release_modifiers(&self, mods: &[crate::options::Modifier]) -> crate::Result<()> {
     if mods.is_empty() {
       return Ok(());
     }
@@ -814,7 +812,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn move_mouse(&self, x: f64, y: f64) -> Result<(), String> {
+  pub async fn move_mouse(&self, x: f64, y: f64) -> crate::Result<()> {
     self
       .cmd("input.performActions", input::pointer_move(&self.context_id, x, y))
       .await?;
@@ -828,7 +826,7 @@ impl BidiPage {
     to_x: f64,
     to_y: f64,
     steps: u32,
-  ) -> Result<(), String> {
+  ) -> crate::Result<()> {
     self
       .cmd(
         "input.performActions",
@@ -838,7 +836,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn mouse_wheel(&self, delta_x: f64, delta_y: f64) -> Result<(), String> {
+  pub async fn mouse_wheel(&self, delta_x: f64, delta_y: f64) -> crate::Result<()> {
     self
       .cmd(
         "input.performActions",
@@ -848,7 +846,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn mouse_down(&self, x: f64, y: f64, button: &str) -> Result<(), String> {
+  pub async fn mouse_down(&self, x: f64, y: f64, button: &str) -> crate::Result<()> {
     let btn = input::button_name_to_id(button);
     self
       .cmd("input.performActions", input::mouse_down(&self.context_id, x, y, btn))
@@ -856,7 +854,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn mouse_up(&self, x: f64, y: f64, button: &str) -> Result<(), String> {
+  pub async fn mouse_up(&self, x: f64, y: f64, button: &str) -> crate::Result<()> {
     let btn = input::button_name_to_id(button);
     self
       .cmd("input.performActions", input::mouse_up(&self.context_id, x, y, btn))
@@ -864,7 +862,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn click_and_drag(&self, from: (f64, f64), to: (f64, f64), steps: u32) -> Result<(), String> {
+  pub async fn click_and_drag(&self, from: (f64, f64), to: (f64, f64), steps: u32) -> crate::Result<()> {
     self
       .cmd(
         "input.performActions",
@@ -874,28 +872,28 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn type_str(&self, text: &str) -> Result<(), String> {
+  pub async fn type_str(&self, text: &str) -> crate::Result<()> {
     self
       .cmd("input.performActions", input::type_text(&self.context_id, text))
       .await?;
     Ok(())
   }
 
-  pub async fn key_down(&self, key: &str) -> Result<(), String> {
+  pub async fn key_down(&self, key: &str) -> crate::Result<()> {
     self
       .cmd("input.performActions", input::key_down(&self.context_id, key))
       .await?;
     Ok(())
   }
 
-  pub async fn key_up(&self, key: &str) -> Result<(), String> {
+  pub async fn key_up(&self, key: &str) -> crate::Result<()> {
     self
       .cmd("input.performActions", input::key_up(&self.context_id, key))
       .await?;
     Ok(())
   }
 
-  pub async fn press_key(&self, key: &str) -> Result<(), String> {
+  pub async fn press_key(&self, key: &str) -> crate::Result<()> {
     self
       .cmd("input.performActions", input::press_key(&self.context_id, key))
       .await?;
@@ -904,7 +902,7 @@ impl BidiPage {
 
   // ── Cookies ─────────────────────────────────────────────────────────────
 
-  pub async fn get_cookies(&self) -> Result<Vec<CookieData>, String> {
+  pub async fn get_cookies(&self) -> crate::Result<Vec<CookieData>> {
     let result = self
       .cmd(
         "storage.getCookies",
@@ -917,7 +915,7 @@ impl BidiPage {
     let cookies = result
       .get("cookies")
       .and_then(|v| v.as_array())
-      .ok_or("getCookies: missing cookies array")?;
+      .ok_or_else(|| FerriError::backend("getCookies: missing cookies array"))?;
 
     let mut out = Vec::with_capacity(cookies.len());
     for c in cookies {
@@ -926,7 +924,7 @@ impl BidiPage {
     Ok(out)
   }
 
-  pub async fn set_cookie(&self, cookie: CookieData) -> Result<(), String> {
+  pub async fn set_cookie(&self, cookie: CookieData) -> crate::Result<()> {
     let mut cookie_obj = json!({
       "name": cookie.name,
       "value": {"type": "string", "value": cookie.value},
@@ -965,7 +963,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn delete_cookie(&self, name: &str, domain: Option<&str>) -> Result<(), String> {
+  pub async fn delete_cookie(&self, name: &str, domain: Option<&str>) -> crate::Result<()> {
     let mut filter = json!({"name": name});
     if let Some(d) = domain {
       filter["domain"] = json!(d);
@@ -982,7 +980,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn clear_cookies(&self) -> Result<(), String> {
+  pub async fn clear_cookies(&self) -> crate::Result<()> {
     self
       .cmd(
         "storage.deleteCookies",
@@ -996,7 +994,7 @@ impl BidiPage {
 
   // ── Emulation ───────────────────────────────────────────────────────────
 
-  pub async fn emulate_viewport(&self, config: &crate::options::ViewportConfig) -> Result<(), String> {
+  pub async fn emulate_viewport(&self, config: &crate::options::ViewportConfig) -> crate::Result<()> {
     let mut params = json!({
       "context": &*self.context_id,
       "viewport": {
@@ -1011,7 +1009,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn set_user_agent(&self, ua: &str) -> Result<(), String> {
+  pub async fn set_user_agent(&self, ua: &str) -> crate::Result<()> {
     self
       .cmd(
         "emulation.setUserAgentOverride",
@@ -1024,7 +1022,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn set_geolocation(&self, lat: f64, lng: f64, accuracy: f64) -> Result<(), String> {
+  pub async fn set_geolocation(&self, lat: f64, lng: f64, accuracy: f64) -> crate::Result<()> {
     self
       .cmd(
         "emulation.setGeolocationOverride",
@@ -1041,7 +1039,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn set_locale(&self, locale: &str) -> Result<(), String> {
+  pub async fn set_locale(&self, locale: &str) -> crate::Result<()> {
     self
       .cmd(
         "emulation.setLocaleOverride",
@@ -1054,7 +1052,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn set_timezone(&self, timezone_id: &str) -> Result<(), String> {
+  pub async fn set_timezone(&self, timezone_id: &str) -> crate::Result<()> {
     self
       .cmd(
         "emulation.setTimezoneOverride",
@@ -1067,7 +1065,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn emulate_media(&self, opts: &crate::options::EmulateMediaOptions) -> Result<(), String> {
+  pub async fn emulate_media(&self, opts: &crate::options::EmulateMediaOptions) -> crate::Result<()> {
     use crate::options::MediaOverride;
     // Firefox/BiDi only exposes `emulation.setForcedColorsModeThemeOverride`
     // (per /tmp/playwright/packages/playwright-core/src/server/bidi/third_party/bidiProtocolCore.ts:1069).
@@ -1120,7 +1118,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn set_javascript_enabled(&self, enabled: bool) -> Result<(), String> {
+  pub async fn set_javascript_enabled(&self, enabled: bool) -> crate::Result<()> {
     self
       .cmd(
         "emulation.setScriptingEnabled",
@@ -1133,12 +1131,12 @@ impl BidiPage {
     Ok(())
   }
 
-  pub fn set_bypass_csp(&self, _enabled: bool) -> impl std::future::Future<Output = Result<(), String>> {
+  pub fn set_bypass_csp(&self, _enabled: bool) -> impl std::future::Future<Output = crate::Result<()>> {
     let _ = &self.context_id;
     std::future::ready(Ok(()))
   }
 
-  pub fn set_ignore_certificate_errors(&self, _ignore: bool) -> impl std::future::Future<Output = Result<(), String>> {
+  pub fn set_ignore_certificate_errors(&self, _ignore: bool) -> impl std::future::Future<Output = crate::Result<()>> {
     let _ = &self.context_id;
     std::future::ready(Ok(()))
   }
@@ -1147,7 +1145,7 @@ impl BidiPage {
     &self,
     _behavior: &str,
     _download_path: &str,
-  ) -> impl std::future::Future<Output = Result<(), String>> {
+  ) -> impl std::future::Future<Output = crate::Result<()>> {
     let _ = &self.context_id;
     std::future::ready(Ok(()))
   }
@@ -1156,17 +1154,17 @@ impl BidiPage {
     &self,
     _username: &str,
     _password: &str,
-  ) -> impl std::future::Future<Output = Result<(), String>> {
+  ) -> impl std::future::Future<Output = crate::Result<()>> {
     let _ = &self.context_id;
     std::future::ready(Ok(()))
   }
 
-  pub fn set_service_workers_blocked(&self, _blocked: bool) -> impl std::future::Future<Output = Result<(), String>> {
+  pub fn set_service_workers_blocked(&self, _blocked: bool) -> impl std::future::Future<Output = crate::Result<()>> {
     let _ = &self.context_id;
     std::future::ready(Ok(()))
   }
 
-  pub async fn set_extra_http_headers(&self, headers: &FxHashMap<String, String>) -> Result<(), String> {
+  pub async fn set_extra_http_headers(&self, headers: &FxHashMap<String, String>) -> crate::Result<()> {
     let header_list: Vec<serde_json::Value> = headers
       .iter()
       .map(|(k, v)| {
@@ -1193,17 +1191,17 @@ impl BidiPage {
     &self,
     _permissions: &[String],
     _origin: Option<&str>,
-  ) -> impl std::future::Future<Output = Result<(), String>> {
+  ) -> impl std::future::Future<Output = crate::Result<()>> {
     let _ = &self.context_id;
     std::future::ready(Err("Permissions API not available in BiDi backend".into()))
   }
 
-  pub fn reset_permissions(&self) -> impl std::future::Future<Output = Result<(), String>> {
+  pub fn reset_permissions(&self) -> impl std::future::Future<Output = crate::Result<()>> {
     let _ = &self.context_id;
     std::future::ready(Err("Permissions API not available in BiDi backend".into()))
   }
 
-  pub async fn set_focus_emulation_enabled(&self, _enabled: bool) -> Result<(), String> {
+  pub async fn set_focus_emulation_enabled(&self, _enabled: bool) -> crate::Result<()> {
     // Activate the browsing context to give it focus
     let _ = self
       .cmd("browsingContext.activate", json!({"context": &*self.context_id}))
@@ -1213,7 +1211,7 @@ impl BidiPage {
 
   // ── Network ─────────────────────────────────────────────────────────────
 
-  pub async fn set_network_state(&self, offline: bool, latency: f64, download: f64, upload: f64) -> Result<(), String> {
+  pub async fn set_network_state(&self, offline: bool, latency: f64, download: f64, upload: f64) -> crate::Result<()> {
     self
       .cmd(
         "emulation.setNetworkConditions",
@@ -1231,24 +1229,24 @@ impl BidiPage {
 
   // ── Tracing ─────────────────────────────────────────────────────────────
 
-  pub fn start_tracing(&self) -> impl std::future::Future<Output = Result<(), String>> {
+  pub fn start_tracing(&self) -> impl std::future::Future<Output = crate::Result<()>> {
     let _ = &self.context_id;
     std::future::ready(Err("Tracing not supported on BiDi backend".into()))
   }
 
-  pub fn stop_tracing(&self) -> impl std::future::Future<Output = Result<(), String>> {
+  pub fn stop_tracing(&self) -> impl std::future::Future<Output = crate::Result<()>> {
     let _ = &self.context_id;
     std::future::ready(Err("Tracing not supported on BiDi backend".into()))
   }
 
-  pub fn metrics(&self) -> impl std::future::Future<Output = Result<Vec<MetricData>, String>> {
+  pub fn metrics(&self) -> impl std::future::Future<Output = crate::Result<Vec<MetricData>>> {
     let _ = &self.context_id;
     std::future::ready(Err("Performance metrics not supported on BiDi backend".into()))
   }
 
   // ── Ref resolution ──────────────────────────────────────────────────────
 
-  pub async fn resolve_backend_node(&self, backend_node_id: i64, _ref_id: &str) -> Result<AnyElement, String> {
+  pub async fn resolve_backend_node(&self, backend_node_id: i64, _ref_id: &str) -> crate::Result<AnyElement> {
     // Resolve via data-fdref attribute (set during accessibility tree walk)
     self.find_element(&format!("[data-fdref='{backend_node_id}']")).await
   }
@@ -1374,7 +1372,7 @@ impl BidiPage {
   /// `/tmp/playwright/packages/playwright-core/src/server/bidi/bidiPdf.ts`;
   /// fields unsupported by `BiDi` are silently dropped here (Playwright does
   /// the same). Unit conversion mirrors the CDP backend.
-  pub async fn pdf(&self, opts: crate::options::PdfOptions) -> Result<Vec<u8>, String> {
+  pub async fn pdf(&self, opts: crate::options::PdfOptions) -> crate::Result<Vec<u8>> {
     let mut paper_width = 8.5_f64;
     let mut paper_height = 11.0_f64;
     if let Some(ref format) = opts.format {
@@ -1382,7 +1380,7 @@ impl BidiPage {
         paper_width = w;
         paper_height = h;
       } else {
-        return Err(format!("Unknown paper format: {format}"));
+        return Err(format!("Unknown paper format: {format}").into());
       }
     } else {
       if let Some(ref w) = opts.width {
@@ -1419,10 +1417,13 @@ impl BidiPage {
 
     let result = self.cmd("browsingContext.print", params).await?;
 
-    let data_str = result.get("data").and_then(|v| v.as_str()).ok_or("PDF: missing data")?;
+    let data_str = result
+      .get("data")
+      .and_then(|v| v.as_str())
+      .ok_or_else(|| FerriError::backend("PDF: missing data"))?;
     base64::engine::general_purpose::STANDARD
       .decode(data_str)
-      .map_err(|e| format!("PDF base64 decode: {e}"))
+      .map_err(|e| FerriError::backend(format!("PDF base64 decode: {e}")))
   }
 
   // ── Screencast (not supported) ──────────────────────────────────────────
@@ -1436,7 +1437,7 @@ impl BidiPage {
     quality: u8,
     _max_width: u32,
     _max_height: u32,
-  ) -> impl std::future::Future<Output = Result<tokio::sync::mpsc::UnboundedReceiver<(Vec<u8>, f64)>, String>> {
+  ) -> impl std::future::Future<Output = crate::Result<tokio::sync::mpsc::UnboundedReceiver<(Vec<u8>, f64)>>> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let session = self.session.clone();
     let ctx_id = self.context_id.clone();
@@ -1515,14 +1516,14 @@ impl BidiPage {
     std::future::ready(Ok(rx))
   }
 
-  pub fn stop_screencast(&self) -> impl std::future::Future<Output = Result<(), String>> {
+  pub fn stop_screencast(&self) -> impl std::future::Future<Output = crate::Result<()>> {
     let _ = &self.context_id;
     std::future::ready(Ok(()))
   }
 
   // ── File upload ─────────────────────────────────────────────────────────
 
-  pub async fn set_file_input(&self, selector: &str, paths: &[String]) -> Result<(), String> {
+  pub async fn set_file_input(&self, selector: &str, paths: &[String]) -> crate::Result<()> {
     // Find the element, then use input.setFiles
     let elem = self.find_element(selector).await?;
     let shared_id = match &elem {
@@ -1549,7 +1550,7 @@ impl BidiPage {
     &self,
     matcher: crate::url_matcher::UrlMatcher,
     handler: crate::route::RouteHandler,
-  ) -> Result<(), String> {
+  ) -> crate::Result<()> {
     let needs_intercept = self.intercept_ids.read().await.is_empty();
     if needs_intercept {
       // Register a single intercept for ALL requests on this context (no urlPatterns).
@@ -1568,7 +1569,7 @@ impl BidiPage {
       let intercept_id = result
         .get("intercept")
         .and_then(|v| v.as_str())
-        .ok_or("addIntercept: missing intercept id")?
+        .ok_or_else(|| FerriError::backend("addIntercept: missing intercept id"))?
         .to_string();
 
       self.intercept_ids.write().await.push(intercept_id);
@@ -1660,7 +1661,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn unroute(&self, matcher: &crate::url_matcher::UrlMatcher) -> Result<(), String> {
+  pub async fn unroute(&self, matcher: &crate::url_matcher::UrlMatcher) -> crate::Result<()> {
     let mut routes = self.routes.write().await;
     routes.retain(|r| !r.matcher.equivalent(matcher));
 
@@ -1677,7 +1678,7 @@ impl BidiPage {
 
   // ── Lifecycle ───────────────────────────────────────────────────────────
 
-  pub async fn close_page(&self, opts: crate::options::PageCloseOptions) -> Result<(), String> {
+  pub async fn close_page(&self, opts: crate::options::PageCloseOptions) -> crate::Result<()> {
     // BiDi's `browsingContext.close` takes an optional `promptUnload` flag
     // — true fires `beforeunload` handlers before unloading the context.
     // Mirrors Playwright's `bidiPage.ts:_closePage` param naming.
@@ -1701,7 +1702,7 @@ impl BidiPage {
 
   // ── Init Scripts ────────────────────────────────────────────────────────
 
-  pub async fn add_init_script(&self, source: &str) -> Result<String, String> {
+  pub async fn add_init_script(&self, source: &str) -> crate::Result<String> {
     let wrapped = format!("() => {{ {source} }}");
     let result = self
       .cmd(
@@ -1716,7 +1717,7 @@ impl BidiPage {
     let bidi_id = result
       .get("script")
       .and_then(|v| v.as_str())
-      .ok_or("addPreloadScript: missing script id")?
+      .ok_or_else(|| FerriError::backend("addPreloadScript: missing script id"))?
       .to_string();
 
     // Generate our own stable identifier
@@ -1726,13 +1727,13 @@ impl BidiPage {
     Ok(our_id)
   }
 
-  pub async fn remove_init_script(&self, identifier: &str) -> Result<(), String> {
+  pub async fn remove_init_script(&self, identifier: &str) -> crate::Result<()> {
     let bidi_id = self
       .preload_scripts
       .write()
       .await
       .remove(identifier)
-      .ok_or(format!("Init script '{identifier}' not found"))?;
+      .ok_or_else(|| FerriError::backend(format!("Init script '{identifier}' not found")))?;
 
     self
       .cmd("script.removePreloadScript", json!({"script": bidi_id}))
@@ -1787,7 +1788,7 @@ impl BidiPage {
     frame_id: Option<&str>,
     is_function: Option<bool>,
     return_by_value: bool,
-  ) -> Result<crate::js_handle::EvaluateResult, String> {
+  ) -> crate::Result<crate::js_handle::EvaluateResult> {
     use crate::js_handle::{EvaluateResult as FdEvalResult, HandleRemote};
     use crate::protocol::HandleId;
     use serde_json::json;
@@ -1844,12 +1845,11 @@ impl BidiPage {
     });
 
     let response = self.cmd("script.callFunction", params).await?;
-    let eval_result: super::types::EvaluateResult =
-      serde_json::from_value(response).map_err(|e| format!("BiDi call_utility_evaluate parse: {e}"))?;
+    let eval_result: super::types::EvaluateResult = serde_json::from_value(response).map_err(FerriError::from)?;
 
     match eval_result {
       super::types::EvaluateResult::Exception { exception_details } => {
-        Err(format!("Evaluation error: {}", exception_details.text))
+        Err(format!("Evaluation error: {}", exception_details.text).into())
       },
       super::types::EvaluateResult::Success { result } => {
         if return_by_value {
@@ -1859,7 +1859,7 @@ impl BidiPage {
           let inner_json: serde_json::Value = match result {
             super::types::RemoteValue::String { value } => {
               let s = value.as_str().unwrap_or("null").to_string();
-              serde_json::from_str(&s).map_err(|e| format!("BiDi parse utility result: {e}"))?
+              serde_json::from_str(&s).map_err(FerriError::from)?
             },
             super::types::RemoteValue::Null | super::types::RemoteValue::Undefined => {
               return Ok(FdEvalResult::Value(crate::protocol::SerializedValue::Special(
@@ -1867,13 +1867,14 @@ impl BidiPage {
               )));
             },
             other => {
-              return Err(format!(
-                "BiDi call_utility_evaluate: wrapper returned non-string in returnByValue mode: {other:?}"
-              ));
+              return Err(
+                format!("BiDi call_utility_evaluate: wrapper returned non-string in returnByValue mode: {other:?}")
+                  .into(),
+              );
             },
           };
           let parsed: crate::protocol::SerializedValue =
-            serde_json::from_value(inner_json).map_err(|e| format!("BiDi parse SerializedValue: {e}"))?;
+            serde_json::from_value(inner_json).map_err(FerriError::from)?;
           Ok(FdEvalResult::Value(parsed))
         } else {
           // Returning a handle: the result is either a DOM node
@@ -1968,7 +1969,7 @@ impl BidiPage {
   /// # Errors
   ///
   /// Returns the transport error if the `BiDi` command fails.
-  pub async fn release_handle(&self, shared_id: &str, handle: Option<&str>) -> Result<(), String> {
+  pub async fn release_handle(&self, shared_id: &str, handle: Option<&str>) -> crate::Result<()> {
     let handle_str = handle.unwrap_or(shared_id);
     self
       .cmd(
@@ -1984,7 +1985,7 @@ impl BidiPage {
 
   // ── Exposed Functions ───────────────────────────────────────────────────
 
-  pub async fn expose_function(&self, name: &str, func: crate::events::ExposedFn) -> Result<(), String> {
+  pub async fn expose_function(&self, name: &str, func: crate::events::ExposedFn) -> crate::Result<()> {
     // Inject a global function that sends messages via BiDi channel
     let js = format!(
       r"() => {{
@@ -2026,7 +2027,7 @@ impl BidiPage {
     Ok(())
   }
 
-  pub async fn remove_exposed_function(&self, name: &str) -> Result<(), String> {
+  pub async fn remove_exposed_function(&self, name: &str) -> crate::Result<()> {
     self.exposed_fns.write().await.remove(name);
     let js = format!("delete window['{name}']");
     let _ = self.evaluate(&js).await;
@@ -2217,7 +2218,7 @@ impl BidiNetworkTracker {
       .to_string();
     req.set_failure(error_text.clone()).await;
     if let Some(resp) = self.responses.lock().await.get(&request_id).cloned() {
-      resp.finish_failure(error_text).await;
+      resp.finish_failure(FerriError::backend(error_text)).await;
     }
     emitter.emit(PageEvent::RequestFailed(req));
   }
@@ -2267,20 +2268,21 @@ impl BidiNetworkTracker {
           )
           .await
           .map_err(|e| {
+            let msg = e.to_string();
             // Firefox discards response body bytes for non-intercepted
             // responses; `network.getData` then returns "no such network
             // data". Mirror Playwright's own BiDi backend behaviour and
             // surface this as a typed `Unsupported` so callers can
             // distinguish "Firefox dropped it" from a real protocol
             // failure.
-            if e.contains("no such network data") {
+            if msg.contains("no such network data") {
               crate::error::FerriError::Unsupported(
                 "Response body unavailable on BiDi without network interception (Firefox discards bytes after response)".into(),
               )
             } else {
               crate::error::FerriError::Protocol {
                 method: "network.getData".into(),
-                message: e,
+                message: msg,
               }
             }
           })?;
@@ -2288,7 +2290,7 @@ impl BidiNetworkTracker {
         let data = bytes.unwrap_or("");
         base64::engine::general_purpose::STANDARD
           .decode(data)
-          .map_err(|e| crate::error::FerriError::Other(format!("base64 decode: {e}")))
+          .map_err(|e| crate::error::FerriError::backend(format!("base64 decode: {e}")))
       })
     })
   }

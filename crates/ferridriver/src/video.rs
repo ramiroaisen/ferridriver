@@ -26,7 +26,7 @@ pub struct VideoRecordingHandle {
   /// Pump task: CDP screencast -> channel.
   pump_task: tokio::task::JoinHandle<()>,
   /// Encoder task: channel -> ffmpeg encode (blocking thread).
-  encoder_task: tokio::task::JoinHandle<Result<(), String>>,
+  encoder_task: tokio::task::JoinHandle<crate::Result<()>>,
   output_path: PathBuf,
 }
 
@@ -41,7 +41,7 @@ pub async fn start_recording(
   width: u32,
   height: u32,
   quality: u8,
-) -> Result<VideoRecordingHandle, String> {
+) -> crate::Result<VideoRecordingHandle> {
   let w = width & !1;
   let h = height & !1;
 
@@ -79,7 +79,7 @@ impl VideoRecordingHandle {
   /// # Errors
   ///
   /// Returns an error if the encoder fails or the join handle panics.
-  pub async fn stop(self, page: &Page) -> Result<PathBuf, String> {
+  pub async fn stop(self, page: &Page) -> crate::Result<PathBuf> {
     // Stop CDP screencast. This makes Chrome stop sending frames.
     let _ = page.stop_screencast().await;
 
@@ -117,7 +117,7 @@ pub async fn start_buffered_recording(
   width: u32,
   height: u32,
   quality: u8,
-) -> Result<BufferedRecordingHandle, String> {
+) -> crate::Result<BufferedRecordingHandle> {
   let w = width & !1;
   let h = height & !1;
 
@@ -146,7 +146,7 @@ impl BufferedRecordingHandle {
   /// # Errors
   ///
   /// Returns an error if no frames were captured, encoding fails, or the join handle panics.
-  pub async fn encode(self, page: &Page, output_path: PathBuf) -> Result<PathBuf, String> {
+  pub async fn encode(self, page: &Page, output_path: PathBuf) -> crate::Result<PathBuf> {
     let _ = page.stop_screencast().await;
     self.pump_task.abort();
     let _ = self.pump_task.await;

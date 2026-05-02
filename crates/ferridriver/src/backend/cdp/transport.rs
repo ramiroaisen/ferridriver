@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{broadcast, oneshot};
 
 use crate::backend::json_scan;
+use crate::error::FerriError;
 
 /// Truncate a string for logging, appending "..." if truncated.
 fn truncate_for_log(s: &str, max: usize) -> String {
@@ -20,8 +21,8 @@ fn truncate_for_log(s: &str, max: usize) -> String {
   }
 }
 
-/// Result of a single CDP command: either the response value or an error string.
-type CdpResult = Result<serde_json::Value, String>;
+/// Result of a single CDP command: either the response value or a typed protocol failure.
+type CdpResult = crate::Result<serde_json::Value>;
 
 /// Pending-command map: command ID -> oneshot sender for the CDP response.
 type PendingMap = FxHashMap<u64, oneshot::Sender<CdpResult>>;
@@ -33,13 +34,13 @@ pub trait CdpTransport: Send + Sync + 'static {
     session_id: Option<&str>,
     method: &str,
     params: serde_json::Value,
-  ) -> impl std::future::Future<Output = Result<serde_json::Value, String>> + Send;
+  ) -> impl std::future::Future<Output = crate::Result<serde_json::Value>> + Send;
 
   fn register_nav_waiter(
     &self,
     session_id: &str,
     target: crate::backend::NavLifecycle,
-  ) -> oneshot::Receiver<Result<(), String>>;
+  ) -> oneshot::Receiver<crate::Result<()>>;
 
   fn subscribe_events(&self) -> broadcast::Receiver<serde_json::Value>;
 
@@ -55,7 +56,7 @@ pub trait CdpTransport: Send + Sync + 'static {
 
 struct NavWaiter {
   target: crate::backend::NavLifecycle,
-  tx: oneshot::Sender<Result<(), String>>,
+  tx: oneshot::Sender<crate::Result<()>>,
 }
 
 pub(crate) struct LifecycleTracker {
@@ -96,7 +97,7 @@ impl CdpDispatcher {
     &self,
     session_id: &str,
     target: crate::backend::NavLifecycle,
-  ) -> oneshot::Receiver<Result<(), String>> {
+  ) -> oneshot::Receiver<crate::Result<()>> {
     let (tx, rx) = oneshot::channel();
     lock_or_recover(&self.nav_waiters).insert(session_id.to_string(), NavWaiter { target, tx });
     rx
@@ -121,9 +122,9 @@ impl CdpDispatcher {
     session_id: Option<&str>,
     method: &str,
     params: &serde_json::Value,
-  ) -> Result<(Vec<u8>, oneshot::Receiver<CdpResult>), String> {
+  ) -> crate::Result<(Vec<u8>, oneshot::Receiver<CdpResult>)> {
     let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-    let params_str = serde_json::to_string(params).map_err(|e| format!("Serialize: {e}"))?;
+    let params_str = serde_json::to_string(params)?;
     let mut data = if let Some(sid) = session_id {
       format!(r#"{{"id":{id},"method":"{method}","params":{params_str},"sessionId":"{sid}"}}"#).into_bytes()
     } else {
@@ -163,7 +164,7 @@ impl CdpDispatcher {
       } else {
         let msg_bytes = json_scan::error_message(error_field);
         let msg_str = std::str::from_utf8(msg_bytes).unwrap_or("CDP error");
-        Err(msg_str.to_string())
+        Err(FerriError::protocol("CDP", msg_str))
       };
       tracing::debug!(
         target: "ferridriver::cdp::recv",
@@ -232,7 +233,7 @@ impl CdpDispatcher {
           },
           "Inspector.targetCrashed" => {
             if let Some(w) = waiters.remove(&key) {
-              let _ = w.tx.send(Err("Target crashed".into()));
+              let _ = w.tx.send(Err(FerriError::target_closed(Some("Target crashed".into()))));
             }
           },
           _ => {},

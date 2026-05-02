@@ -76,7 +76,7 @@ impl StepRegistry {
     body: &str,
     data_table: Option<&[Vec<String>]>,
     vars: &mut rustc_hash::FxHashMap<String, String>,
-  ) -> Result<Option<serde_json::Value>, String> {
+  ) -> crate::Result<Option<serde_json::Value>> {
     for step in &self.steps {
       if let Some(caps) = step.pattern().captures(body) {
         return step.execute(page, &caps, data_table, vars).await;
@@ -98,7 +98,7 @@ impl StepRegistry {
     } else {
       format!("\n\nDid you mean:\n{}", suggestions.join("\n"))
     };
-    Err(format!("Unknown step: '{body}'{hint}"))
+    Err(format!("Unknown step: '{body}'{hint}").into())
   }
 
   #[must_use]

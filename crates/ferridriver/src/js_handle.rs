@@ -387,8 +387,7 @@ impl JSHandle {
   /// and [`crate::error::FerriError::TargetClosed`] when this handle
   /// is already disposed.
   pub async fn get_property(&self, name: &str) -> Result<JSHandle> {
-    let escaped =
-      serde_json::to_string(name).map_err(|e| FerriError::Other(format!("getProperty name escape: {e}")))?;
+    let escaped = serde_json::to_string(name).map_err(FerriError::from)?;
     let expr = format!("h => h[{escaped}]");
     self
       .evaluate_handle(&expr, crate::protocol::SerializedArgument::default(), Some(true))

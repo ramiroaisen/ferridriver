@@ -89,11 +89,51 @@ pub enum FerriError {
   #[error("json error: {0}")]
   Json(#[from] serde_json::Error),
 
-  /// Escape hatch used only while migrating existing `Result<T, String>`
-  /// signatures. Replace every `Other` construction with a typed variant
-  /// before the parity work lands.
+  /// Rare catch-all when no other variant applies (prefer [`Self::Backend`],
+  /// [`Self::Protocol`], etc. at construction sites).
   #[error("{0}")]
   Other(String),
+}
+
+impl Clone for FerriError {
+  fn clone(&self) -> Self {
+    match self {
+      Self::Timeout { operation, timeout_ms } => Self::Timeout {
+        operation: operation.clone(),
+        timeout_ms: *timeout_ms,
+      },
+      Self::TargetClosed { reason } => Self::TargetClosed { reason: reason.clone() },
+      Self::StrictModeViolation { selector, count } => Self::StrictModeViolation {
+        selector: selector.clone(),
+        count: *count,
+      },
+      Self::Navigation { url, message } => Self::Navigation {
+        url: url.clone(),
+        message: message.clone(),
+      },
+      Self::Protocol { method, message } => Self::Protocol {
+        method: method.clone(),
+        message: message.clone(),
+      },
+      Self::Backend(msg) => Self::Backend(msg.clone()),
+      Self::InvalidSelector { selector, reason } => Self::InvalidSelector {
+        selector: selector.clone(),
+        reason: reason.clone(),
+      },
+      Self::NotConnected => Self::NotConnected,
+      Self::Interrupted(msg) => Self::Interrupted(msg.clone()),
+      Self::InvalidArgument { name, reason } => Self::InvalidArgument {
+        name: name.clone(),
+        reason: reason.clone(),
+      },
+      Self::Unsupported(msg) => Self::Unsupported(msg.clone()),
+      Self::Evaluation(msg) => Self::Evaluation(msg.clone()),
+      Self::Snapshot(msg) => Self::Snapshot(msg.clone()),
+      Self::Io(e) => Self::Io(std::io::Error::new(e.kind(), e.to_string())),
+      Self::Json(e) => Self::Backend(format!("json error: {e}")),
+      Self::Other(msg) => Self::Other(msg.clone()),
+    }
+  }
 }
 
 impl FerriError {
@@ -194,22 +234,59 @@ impl FerriError {
   pub fn evaluation(message: impl Into<String>) -> Self {
     Self::Evaluation(message.into())
   }
+
+  /// Builder for [`FerriError::Backend`].
+  #[must_use]
+  pub fn backend(message: impl Into<String>) -> Self {
+    Self::Backend(message.into())
+  }
+
+  /// Builder for [`FerriError::Navigation`].
+  #[must_use]
+  pub fn navigation(url: impl Into<String>, message: impl Into<String>) -> Self {
+    Self::Navigation {
+      url: url.into(),
+      message: message.into(),
+    }
+  }
+
+  /// Used by locator retry polling — matches historical string matching on
+  /// transient DOM/session failures (`error:not*` signals from page scripts).
+  #[must_use]
+  pub(crate) fn is_locator_poll_retriable(&self) -> bool {
+    match self {
+      Self::NotConnected => true,
+      Self::Backend(msg) | Self::Evaluation(msg) | Self::Other(msg) | Self::Interrupted(msg) => {
+        msg.contains("not connected")
+          || msg.contains("not found")
+          || msg.contains("detached")
+          || msg.starts_with("error:not")
+      },
+      Self::Protocol { message, .. } => {
+        message.contains("not found") || message.contains("detached") || message.contains("not connected")
+      },
+      Self::Timeout { .. }
+      | Self::TargetClosed { .. }
+      | Self::StrictModeViolation { .. }
+      | Self::Navigation { .. }
+      | Self::InvalidSelector { .. }
+      | Self::InvalidArgument { .. }
+      | Self::Unsupported(_)
+      | Self::Snapshot(_)
+      | Self::Io(_)
+      | Self::Json(_) => false,
+    }
+  }
 }
 
-/// Transitional — lets modules still returning `Result<T, String>` interop via
-/// `?`. Every call site should be migrated to a typed variant; this impl will
-/// be removed once task #1 closes out.
+/// Bridges bare strings from legacy call sites into typed errors — prefers
+/// [`FerriError::Unsupported`] when the payload carries the `unsupported:` prefix.
 impl From<String> for FerriError {
   fn from(s: String) -> Self {
-    // Backend-level String errors carrying the `unsupported:` prefix are
-    // upgraded to a typed [`FerriError::Unsupported`] so callers can
-    // `is_unsupported()`-dispatch without string-sniffing. Matches Rule 4
-    // in CLAUDE.md: "return a typed FerriError::Unsupported { reason }
-    // with a clear explanation".
     if let Some(reason) = s.strip_prefix("unsupported:") {
       return Self::Unsupported(reason.trim().to_string());
     }
-    Self::Other(s)
+    Self::Backend(s)
   }
 }
 
@@ -218,14 +295,10 @@ impl From<&str> for FerriError {
     if let Some(reason) = s.strip_prefix("unsupported:") {
       return Self::Unsupported(reason.trim().to_string());
     }
-    Self::Other(s.to_string())
+    Self::Backend(s.to_string())
   }
 }
 
-/// Transitional — lets unmigrated modules (BDD step macros, backend glue)
-/// continue to use `Result<_, String>`. Lossy: the variant is discarded and
-/// only the `Display` output is preserved. This impl will be removed once
-/// every caller uses `FerriError` natively.
 impl From<FerriError> for String {
   fn from(e: FerriError) -> Self {
     e.to_string()
@@ -234,6 +307,28 @@ impl From<FerriError> for String {
 
 /// Convenience alias. Every new public API function should return this.
 pub type Result<T> = std::result::Result<T, FerriError>;
+
+pub(crate) trait IntoFerriError {
+  fn into_ferri_error(self) -> FerriError;
+}
+
+impl IntoFerriError for String {
+  fn into_ferri_error(self) -> FerriError {
+    self.into()
+  }
+}
+
+impl IntoFerriError for FerriError {
+  fn into_ferri_error(self) -> FerriError {
+    self
+  }
+}
+
+/// Normalize action closures used by the locator retry macro (`String` or [`FerriError`]).
+#[inline]
+pub(crate) fn normalize_action_result<R, E: IntoFerriError>(r: std::result::Result<R, E>) -> Result<R> {
+  r.map_err(|e| e.into_ferri_error())
+}
 
 #[cfg(test)]
 mod tests {
@@ -294,11 +389,11 @@ mod tests {
   }
 
   #[test]
-  fn from_string_and_str_bridge_stays_available_for_migration() {
+  fn from_string_and_str_bridge_maps_plain_messages_to_backend() {
     let from_string: FerriError = String::from("legacy").into();
     let from_str: FerriError = "legacy".into();
-    assert!(matches!(from_string, FerriError::Other(ref s) if s == "legacy"));
-    assert!(matches!(from_str, FerriError::Other(ref s) if s == "legacy"));
+    assert!(matches!(from_string, FerriError::Backend(ref s) if s == "legacy"));
+    assert!(matches!(from_str, FerriError::Backend(ref s) if s == "legacy"));
   }
 
   #[test]

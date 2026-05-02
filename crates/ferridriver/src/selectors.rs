@@ -147,7 +147,7 @@ pub fn is_rich_selector(s: &str) -> bool {
 /// # Errors
 ///
 /// Returns an error if the selector string is empty or has an invalid chain.
-pub fn parse(selector: &str) -> Result<Selector, String> {
+pub fn parse(selector: &str) -> crate::Result<Selector> {
   let selector = selector.trim();
   if selector.is_empty() {
     return Err("Selector cannot be empty".into());
@@ -377,7 +377,7 @@ const ENGINE_JS: &str = include_str!("injected/dist/engine.min.js");
 /// # Errors
 ///
 /// Returns an error if selector parsing or JS evaluation fails.
-pub async fn query_all(page: &AnyPage, selector: &str, frame_id: Option<&str>) -> Result<Vec<MatchedElement>, String> {
+pub async fn query_all(page: &AnyPage, selector: &str, frame_id: Option<&str>) -> crate::Result<Vec<MatchedElement>> {
   let parsed = parse(selector)?;
   page.ensure_engine_injected().await?;
   let fd = "window.__fd";
@@ -392,12 +392,11 @@ pub async fn query_all(page: &AnyPage, selector: &str, frame_id: Option<&str>) -
   // Check for error
   if let Ok(val) = serde_json::from_str::<serde_json::Value>(&result_str) {
     if let Some(err) = val.get("error").and_then(|e| e.as_str()) {
-      return Err(err.to_string());
+      return Err(crate::error::FerriError::evaluation(err.to_string()));
     }
   }
 
-  let elements: Vec<MatchedElement> =
-    serde_json::from_str(&result_str).map_err(|e| format!("Parse selector results: {e}"))?;
+  let elements: Vec<MatchedElement> = serde_json::from_str(&result_str).map_err(crate::error::FerriError::from)?;
   Ok(elements)
 }
 
@@ -413,21 +412,24 @@ pub async fn query_one(
   selector: &str,
   strict: bool,
   frame_id: Option<&str>,
-) -> Result<AnyElement, String> {
+) -> crate::Result<AnyElement> {
   let parsed = parse(selector)?;
   let parts_json = build_parts_json(&parsed);
 
   if strict {
     let matches = query_all(page, selector, frame_id).await?;
     if matches.is_empty() {
-      return Err(format!("No element found for selector: {selector}"));
+      return Err(format!("No element found for selector: {selector}").into());
     }
     if matches.len() > 1 {
       cleanup_tags(page).await;
-      return Err(format!(
-        "Selector \"{selector}\" resolved to {} elements. Use a more specific selector.",
-        matches.len()
-      ));
+      return Err(
+        format!(
+          "Selector \"{selector}\" resolved to {} elements. Use a more specific selector.",
+          matches.len()
+        )
+        .into(),
+      );
     }
     // The query_all JS tags the match with `data-fd-sel='0'`; we resolve
     // that tag in the SAME frame so we get an element bound to the right
@@ -437,7 +439,7 @@ pub async fn query_one(
     let el = page
       .evaluate_to_element(&tagged_js, frame_id)
       .await
-      .map_err(|_| format!("Could not resolve matched element for: {selector}"))?;
+      .map_err(|_| crate::error::FerriError::backend(format!("Could not resolve matched element for: {selector}")))?;
     cleanup_tags(page).await;
     return Ok(el);
   }
@@ -448,7 +450,7 @@ pub async fn query_one(
   page
     .evaluate_to_element(&js, frame_id)
     .await
-    .map_err(|_| format!("No element found for selector: {selector}"))
+    .map_err(|_| crate::error::FerriError::backend(format!("No element found for selector: {selector}")))
 }
 
 /// Query a single element using pre-built JS (avoids re-parsing the selector).
@@ -465,11 +467,11 @@ pub async fn query_one_prebuilt(
   sel_js: &str,
   selector_display: &str,
   frame_id: Option<&str>,
-) -> Result<AnyElement, String> {
+) -> crate::Result<AnyElement> {
   page
     .evaluate_to_element(sel_js, frame_id)
     .await
-    .map_err(|_| format!("No element found for selector: {selector_display}"))
+    .map_err(|_| crate::error::FerriError::backend(format!("No element found for selector: {selector_display}")))
 }
 
 /// Build the JS expression for `selOne` from a selector string.
@@ -478,7 +480,7 @@ pub async fn query_one_prebuilt(
 /// # Errors
 ///
 /// Returns an error if the selector string cannot be parsed.
-pub fn build_selone_js(selector: &str, fd: &str) -> Result<String, String> {
+pub fn build_selone_js(selector: &str, fd: &str) -> crate::Result<String> {
   let parsed = parse(selector)?;
   let parts_json = build_parts_json(&parsed);
   Ok(format!("{fd}.selOne({parts_json})"))

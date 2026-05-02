@@ -23,7 +23,7 @@ use crate::selectors;
 /// body without any `AnyPage` cloning — the page reference is borrowed from `self`
 /// for the entire retry loop.
 ///
-/// The body must be an `async move { ... }` block returning `Result<R, String>`
+/// The body must be an `async move { ... }` block returning `crate::Result<R>`
 /// (the underlying backend error type). The macro converts every error into
 /// [`crate::error::FerriError`] so call sites declare `-> crate::error::Result<R>`.
 ///
@@ -39,13 +39,9 @@ use crate::selectors;
 macro_rules! retry_resolve {
   ($self:expr, $timeout_ms:expr, $op:expr, |$el:ident, $page:ident| $body:expr) => {{
     let $page: &$crate::backend::AnyPage = $self.frame.page_arc().inner();
-    $page
-      .ensure_engine_injected()
-      .await
-      .map_err($crate::error::FerriError::from)?;
+    $page.ensure_engine_injected().await?;
     let __fd = "window.__fd";
-    let __sel_js =
-      $crate::selectors::build_selone_js(&$self.selector, &__fd).map_err($crate::error::FerriError::from)?;
+    let __sel_js = $crate::selectors::build_selone_js(&$self.selector, &__fd)?;
     // Pass `None` for main-frame locators so the backend skips a
     // `frame_contexts` lookup; child frames thread their cached id.
     let __frame_id: ::std::option::Option<&str> = if $self.frame.is_main_frame() {
@@ -114,20 +110,15 @@ macro_rules! retry_resolve {
       }
 
       match $crate::selectors::query_one_prebuilt($page, &__sel_js, &$self.selector, __frame_id).await {
-        ::std::result::Result::Ok($el) => match ($body).await {
+        ::std::result::Result::Ok($el) => match $crate::error::normalize_action_result(($body).await) {
           ::std::result::Result::Ok(val) => return ::std::result::Result::Ok(val),
-          ::std::result::Result::Err(e)
-            if e.contains("not connected")
-              || e.contains("not found")
-              || e.contains("detached")
-              || e.starts_with("error:not") =>
-          {
+          ::std::result::Result::Err(ref e) if $crate::error::FerriError::is_locator_poll_retriable(e) => {
             // Retriable — matches Playwright's `_retryAction` contract
             // where `checkElementStates` returns `error:notvisible` /
             // `error:notenabled` / `error:noteditable` etc. as signals to
             // keep polling until the deadline.
           },
-          ::std::result::Result::Err(e) => return ::std::result::Result::Err($crate::error::FerriError::from(e)),
+          ::std::result::Result::Err(e) => return ::std::result::Result::Err(e),
         },
         ::std::result::Result::Err(_) => {
           // Element not found this iteration; retry until deadline.
@@ -624,7 +615,7 @@ impl Locator {
            return JSON.stringify({{ state: r, isRadio: isRadio }}); \
          }}"
       );
-      let read_state = async || -> ::std::result::Result<(Option<bool>, bool), String> {
+      let read_state = async || -> crate::Result<(Option<bool>, bool)> {
         let raw = el
           .call_js_fn_value(&state_js)
           .await?
@@ -732,7 +723,7 @@ impl Locator {
           .and_then(|v| v.as_str().map(std::string::ToString::to_string))
           .unwrap_or_else(|| "error:notconnected".to_string());
         if state_raw != "done" {
-          return Err(state_raw);
+          return Err(crate::error::FerriError::evaluation(state_raw));
         }
       }
       actions::select_options(&el, page, values_ref).await
@@ -783,8 +774,7 @@ impl Locator {
         // the per-upload subdirs share that root, so we don't leak
         // indefinitely across a test run.
         let tmp_root = std::env::temp_dir().join(format!("ferridriver-files-{}", std::process::id()));
-        std::fs::create_dir_all(&tmp_root)
-          .map_err(|e| crate::error::FerriError::Other(format!("failed to create upload temp dir: {e}")))?;
+        std::fs::create_dir_all(&tmp_root).map_err(crate::error::FerriError::from)?;
         let upload_id = std::time::SystemTime::now()
           .duration_since(std::time::UNIX_EPOCH)
           .map(|d| d.as_nanos())
@@ -792,12 +782,10 @@ impl Locator {
         let mut paths: Vec<String> = Vec::new();
         for (i, p) in payloads.iter().enumerate() {
           let sub = tmp_root.join(format!("{upload_id}-{i}"));
-          std::fs::create_dir_all(&sub)
-            .map_err(|e| crate::error::FerriError::Other(format!("failed to create payload subdir: {e}")))?;
+          std::fs::create_dir_all(&sub).map_err(crate::error::FerriError::from)?;
           let safe_name = p.name.replace(['/', '\\', '\0'], "_");
           let path = sub.join(&safe_name);
-          std::fs::write(&path, &p.buffer)
-            .map_err(|e| crate::error::FerriError::Other(format!("failed to write upload payload: {e}")))?;
+          std::fs::write(&path, &p.buffer).map_err(crate::error::FerriError::from)?;
           paths.push(path.display().to_string());
         }
         actions::upload_file(self.frame.page_arc().inner(), &self.selector, &paths)
@@ -1262,8 +1250,8 @@ impl Locator {
       ),
     );
 
-    let src = src_result?.ok_or_else(|| crate::error::FerriError::Other("no source bounding box".into()))?;
-    let tgt = tgt_result?.ok_or_else(|| crate::error::FerriError::Other("no target bounding box".into()))?;
+    let src = src_result?.ok_or_else(|| crate::error::FerriError::backend("no source bounding box"))?;
+    let tgt = tgt_result?.ok_or_else(|| crate::error::FerriError::backend("no target bounding box"))?;
 
     let from = rect_point(&src, opts.source_position);
     let to = rect_point(&tgt, opts.target_position);

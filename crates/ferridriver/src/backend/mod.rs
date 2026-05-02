@@ -501,7 +501,7 @@ impl AnyBrowser {
   /// # Errors
   ///
   /// Returns an error if the backend fails to enumerate targets or pages.
-  pub async fn pages(&self) -> Result<Vec<AnyPage>, String> {
+  pub async fn pages(&self) -> crate::Result<Vec<AnyPage>> {
     match self {
       Self::CdpPipe(b) => Box::pin(b.pages()).await,
       Self::CdpRaw(b) => Box::pin(b.pages()).await,
@@ -517,7 +517,7 @@ impl AnyBrowser {
   /// # Errors
   ///
   /// Returns an error if context creation fails.
-  pub async fn new_context(&self) -> Result<String, String> {
+  pub async fn new_context(&self) -> crate::Result<String> {
     match self {
       Self::CdpPipe(b) => b.new_context().await,
       Self::CdpRaw(b) => b.new_context().await,
@@ -532,7 +532,7 @@ impl AnyBrowser {
   /// # Errors
   ///
   /// Returns an error if context disposal fails.
-  pub async fn dispose_context(&self, browser_context_id: &str) -> Result<(), String> {
+  pub async fn dispose_context(&self, browser_context_id: &str) -> crate::Result<()> {
     match self {
       Self::CdpPipe(b) => b.dispose_context(browser_context_id).await,
       Self::CdpRaw(b) => b.dispose_context(browser_context_id).await,
@@ -552,7 +552,7 @@ impl AnyBrowser {
     url: &str,
     browser_context_id: Option<&str>,
     viewport: Option<&crate::options::ViewportConfig>,
-  ) -> Result<AnyPage, String> {
+  ) -> crate::Result<AnyPage> {
     match self {
       Self::CdpPipe(b) => Box::pin(b.new_page(url, browser_context_id, viewport)).await,
       Self::CdpRaw(b) => Box::pin(b.new_page(url, browser_context_id, viewport)).await,
@@ -567,7 +567,7 @@ impl AnyBrowser {
   /// # Errors
   ///
   /// Returns an error if the browser process fails to shut down cleanly.
-  pub async fn close(&mut self) -> Result<(), String> {
+  pub async fn close(&mut self) -> crate::Result<()> {
     match self {
       Self::CdpPipe(b) => b.close().await,
       Self::CdpRaw(b) => b.close().await,
@@ -661,11 +661,11 @@ impl AnyPage {
 
   // ── Frames ──
 
-  pub async fn get_frame_tree(&self) -> Result<Vec<FrameInfo>, String> {
+  pub async fn get_frame_tree(&self) -> crate::Result<Vec<FrameInfo>> {
     page_dispatch!(self, get_frame_tree())
   }
 
-  pub async fn evaluate_in_frame(&self, expression: &str, frame_id: &str) -> Result<Option<serde_json::Value>, String> {
+  pub async fn evaluate_in_frame(&self, expression: &str, frame_id: &str) -> crate::Result<Option<serde_json::Value>> {
     page_dispatch!(self, evaluate_in_frame(expression, frame_id))
   }
 
@@ -677,31 +677,31 @@ impl AnyPage {
     lifecycle: NavLifecycle,
     timeout_ms: u64,
     referer: Option<&str>,
-  ) -> Result<(), String> {
+  ) -> crate::Result<()> {
     page_dispatch!(self, goto(url, lifecycle, timeout_ms, referer))
   }
 
-  pub async fn wait_for_navigation(&self) -> Result<(), String> {
+  pub async fn wait_for_navigation(&self) -> crate::Result<()> {
     page_dispatch!(self, wait_for_navigation())
   }
 
-  pub async fn reload(&self, lifecycle: NavLifecycle, timeout_ms: u64) -> Result<(), String> {
+  pub async fn reload(&self, lifecycle: NavLifecycle, timeout_ms: u64) -> crate::Result<()> {
     page_dispatch!(self, reload(lifecycle, timeout_ms))
   }
 
-  pub async fn go_back(&self, lifecycle: NavLifecycle, timeout_ms: u64) -> Result<(), String> {
+  pub async fn go_back(&self, lifecycle: NavLifecycle, timeout_ms: u64) -> crate::Result<()> {
     page_dispatch!(self, go_back(lifecycle, timeout_ms))
   }
 
-  pub async fn go_forward(&self, lifecycle: NavLifecycle, timeout_ms: u64) -> Result<(), String> {
+  pub async fn go_forward(&self, lifecycle: NavLifecycle, timeout_ms: u64) -> crate::Result<()> {
     page_dispatch!(self, go_forward(lifecycle, timeout_ms))
   }
 
-  pub async fn url(&self) -> Result<Option<String>, String> {
+  pub async fn url(&self) -> crate::Result<Option<String>> {
     page_dispatch!(self, url())
   }
 
-  pub async fn title(&self) -> Result<Option<String>, String> {
+  pub async fn title(&self) -> crate::Result<Option<String>> {
     page_dispatch!(self, title())
   }
 
@@ -709,21 +709,21 @@ impl AnyPage {
 
   /// Returns a script that ensures the selector engine is injected.
   /// Mirrored after Playwright's `injectedScript()`.
-  pub async fn injected_script(&self) -> Result<String, String> {
+  pub async fn injected_script(&self) -> crate::Result<String> {
     page_dispatch!(self, injected_script())
   }
 
-  pub async fn ensure_engine_injected(&self) -> Result<(), String> {
+  pub async fn ensure_engine_injected(&self) -> crate::Result<()> {
     page_dispatch!(self, ensure_engine_injected())
   }
 
-  pub async fn evaluate(&self, expression: &str) -> Result<Option<serde_json::Value>, String> {
+  pub async fn evaluate(&self, expression: &str) -> crate::Result<Option<serde_json::Value>> {
     page_dispatch!(self, evaluate(expression))
   }
 
   // ── Elements ──
 
-  pub async fn find_element(&self, selector: &str) -> Result<AnyElement, String> {
+  pub async fn find_element(&self, selector: &str) -> crate::Result<AnyElement> {
     page_dispatch!(self, find_element(selector))
   }
 
@@ -737,43 +737,43 @@ impl AnyPage {
   /// non-main `frame_id` values fall back to the main page (DOM access
   /// via `WKFrameInfo` is a separate gap tracked in Section B of
   /// `PLAYWRIGHT_COMPAT.md`).
-  pub async fn evaluate_to_element(&self, js: &str, frame_id: Option<&str>) -> Result<AnyElement, String> {
+  pub async fn evaluate_to_element(&self, js: &str, frame_id: Option<&str>) -> crate::Result<AnyElement> {
     page_dispatch!(self, evaluate_to_element(js, frame_id))
   }
 
   // ── Content ──
 
-  pub async fn content(&self) -> Result<String, String> {
+  pub async fn content(&self) -> crate::Result<String> {
     page_dispatch!(self, content())
   }
 
-  pub async fn set_content(&self, html: &str) -> Result<(), String> {
+  pub async fn set_content(&self, html: &str) -> crate::Result<()> {
     page_dispatch!(self, set_content(html))
   }
 
   // ── Screenshots ──
 
-  pub async fn screenshot(&self, opts: ScreenshotOpts) -> Result<Vec<u8>, String> {
+  pub async fn screenshot(&self, opts: ScreenshotOpts) -> crate::Result<Vec<u8>> {
     page_dispatch!(self, screenshot(opts))
   }
 
   // ── Accessibility ──
 
-  pub async fn accessibility_tree(&self) -> Result<Vec<AxNodeData>, String> {
+  pub async fn accessibility_tree(&self) -> crate::Result<Vec<AxNodeData>> {
     page_dispatch!(self, accessibility_tree())
   }
 
-  pub async fn accessibility_tree_with_depth(&self, depth: i32) -> Result<Vec<AxNodeData>, String> {
+  pub async fn accessibility_tree_with_depth(&self, depth: i32) -> crate::Result<Vec<AxNodeData>> {
     page_dispatch!(self, accessibility_tree_with_depth(depth))
   }
 
   // ── Input ──
 
-  pub async fn click_at(&self, x: f64, y: f64) -> Result<(), String> {
+  pub async fn click_at(&self, x: f64, y: f64) -> crate::Result<()> {
     page_dispatch!(self, click_at(x, y))
   }
 
-  pub async fn click_at_opts(&self, x: f64, y: f64, button: &str, click_count: u32) -> Result<(), String> {
+  pub async fn click_at_opts(&self, x: f64, y: f64, button: &str, click_count: u32) -> crate::Result<()> {
     page_dispatch!(self, click_at_opts(x, y, button, click_count))
   }
 
@@ -784,14 +784,14 @@ impl AnyPage {
   /// is the caller's responsibility — use [`Self::press_modifiers`] /
   /// [`Self::release_modifiers`] around this call when
   /// `!args.modifiers.is_empty()`.
-  pub async fn click_at_with(&self, x: f64, y: f64, args: &BackendClickArgs) -> Result<(), String> {
+  pub async fn click_at_with(&self, x: f64, y: f64, args: &BackendClickArgs) -> crate::Result<()> {
     page_dispatch!(self, click_at_with(x, y, args))
   }
 
   /// Dispatch a hover (no press/release) at `(x, y)` with `steps`
   /// interpolated `mousemove` events and the caller's modifier bitmask
   /// on each. Modifier keydown/keyup is the caller's responsibility.
-  pub async fn hover_at_with(&self, x: f64, y: f64, args: &BackendHoverArgs) -> Result<(), String> {
+  pub async fn hover_at_with(&self, x: f64, y: f64, args: &BackendHoverArgs) -> crate::Result<()> {
     page_dispatch!(self, hover_at_with(x, y, args))
   }
 
@@ -801,7 +801,7 @@ impl AnyPage {
   /// `WebKit` do not expose a public touch injection primitive and
   /// return a backend-level error with the `unsupported:` prefix;
   /// callers should surface it as [`crate::error::FerriError::Unsupported`].
-  pub async fn tap_at_with(&self, x: f64, y: f64, args: &BackendTapArgs) -> Result<(), String> {
+  pub async fn tap_at_with(&self, x: f64, y: f64, args: &BackendTapArgs) -> crate::Result<()> {
     page_dispatch!(self, tap_at_with(x, y, args))
   }
 
@@ -809,16 +809,16 @@ impl AnyPage {
   /// protocol (CDP `Input.dispatchKeyEvent { type: "keyDown" }`, `BiDi`
   /// `input.performActions`, or `WebKit` host IPC). Idempotent for empty
   /// lists. Callers pair this with [`Self::release_modifiers`].
-  pub async fn press_modifiers(&self, mods: &[crate::options::Modifier]) -> Result<(), String> {
+  pub async fn press_modifiers(&self, mods: &[crate::options::Modifier]) -> crate::Result<()> {
     page_dispatch!(self, press_modifiers(mods))
   }
 
   /// Release all modifiers in `mods`. See [`Self::press_modifiers`].
-  pub async fn release_modifiers(&self, mods: &[crate::options::Modifier]) -> Result<(), String> {
+  pub async fn release_modifiers(&self, mods: &[crate::options::Modifier]) -> crate::Result<()> {
     page_dispatch!(self, release_modifiers(mods))
   }
 
-  pub async fn move_mouse(&self, x: f64, y: f64) -> Result<(), String> {
+  pub async fn move_mouse(&self, x: f64, y: f64) -> crate::Result<()> {
     page_dispatch!(self, move_mouse(x, y))
   }
 
@@ -829,69 +829,69 @@ impl AnyPage {
     to_x: f64,
     to_y: f64,
     steps: u32,
-  ) -> Result<(), String> {
+  ) -> crate::Result<()> {
     page_dispatch!(self, move_mouse_smooth(from_x, from_y, to_x, to_y, steps))
   }
 
-  pub async fn mouse_wheel(&self, delta_x: f64, delta_y: f64) -> Result<(), String> {
+  pub async fn mouse_wheel(&self, delta_x: f64, delta_y: f64) -> crate::Result<()> {
     page_dispatch!(self, mouse_wheel(delta_x, delta_y))
   }
 
-  pub async fn mouse_down(&self, x: f64, y: f64, button: &str) -> Result<(), String> {
+  pub async fn mouse_down(&self, x: f64, y: f64, button: &str) -> crate::Result<()> {
     page_dispatch!(self, mouse_down(x, y, button))
   }
 
-  pub async fn mouse_up(&self, x: f64, y: f64, button: &str) -> Result<(), String> {
+  pub async fn mouse_up(&self, x: f64, y: f64, button: &str) -> crate::Result<()> {
     page_dispatch!(self, mouse_up(x, y, button))
   }
 
-  pub async fn click_and_drag(&self, from: (f64, f64), to: (f64, f64), steps: u32) -> Result<(), String> {
+  pub async fn click_and_drag(&self, from: (f64, f64), to: (f64, f64), steps: u32) -> crate::Result<()> {
     page_dispatch!(self, click_and_drag(from, to, steps))
   }
 
-  pub async fn type_str(&self, text: &str) -> Result<(), String> {
+  pub async fn type_str(&self, text: &str) -> crate::Result<()> {
     page_dispatch!(self, type_str(text))
   }
 
   /// Insert text without emitting keyboard events (only `input` event).
   /// This is Playwright's `keyboard.insertText()` semantic.
-  pub async fn insert_text(&self, text: &str) -> Result<(), String> {
+  pub async fn insert_text(&self, text: &str) -> crate::Result<()> {
     // type_str on all backends uses Input.insertText / equivalent
     self.type_str(text).await
   }
 
-  pub async fn key_down(&self, key: &str) -> Result<(), String> {
+  pub async fn key_down(&self, key: &str) -> crate::Result<()> {
     page_dispatch!(self, key_down(key))
   }
 
-  pub async fn key_up(&self, key: &str) -> Result<(), String> {
+  pub async fn key_up(&self, key: &str) -> crate::Result<()> {
     page_dispatch!(self, key_up(key))
   }
 
-  pub async fn press_key(&self, key: &str) -> Result<(), String> {
+  pub async fn press_key(&self, key: &str) -> crate::Result<()> {
     page_dispatch!(self, press_key(key))
   }
 
   // ── Cookies ──
 
-  pub async fn get_cookies(&self) -> Result<Vec<CookieData>, String> {
+  pub async fn get_cookies(&self) -> crate::Result<Vec<CookieData>> {
     page_dispatch!(self, get_cookies())
   }
 
-  pub async fn set_cookie(&self, cookie: CookieData) -> Result<(), String> {
+  pub async fn set_cookie(&self, cookie: CookieData) -> crate::Result<()> {
     page_dispatch!(self, set_cookie(cookie))
   }
 
-  pub async fn delete_cookie(&self, name: &str, domain: Option<&str>) -> Result<(), String> {
+  pub async fn delete_cookie(&self, name: &str, domain: Option<&str>) -> crate::Result<()> {
     page_dispatch!(self, delete_cookie(name, domain))
   }
 
-  pub async fn clear_cookies(&self) -> Result<(), String> {
+  pub async fn clear_cookies(&self) -> crate::Result<()> {
     page_dispatch!(self, clear_cookies())
   }
 
   /// Clear cookies matching the given filters. If no filters, clears all.
-  pub async fn clear_cookies_filtered(&self, options: &ClearCookieOptions) -> Result<(), String> {
+  pub async fn clear_cookies_filtered(&self, options: &ClearCookieOptions) -> crate::Result<()> {
     if options.name.is_none() && options.domain.is_none() && options.path.is_none() {
       return self.clear_cookies().await;
     }
@@ -910,93 +910,93 @@ impl AnyPage {
 
   // ── Emulation ──
 
-  pub async fn emulate_viewport(&self, config: &crate::options::ViewportConfig) -> Result<(), String> {
+  pub async fn emulate_viewport(&self, config: &crate::options::ViewportConfig) -> crate::Result<()> {
     page_dispatch!(self, emulate_viewport(config))
   }
 
-  pub async fn set_user_agent(&self, ua: &str) -> Result<(), String> {
+  pub async fn set_user_agent(&self, ua: &str) -> crate::Result<()> {
     page_dispatch!(self, set_user_agent(ua))
   }
 
-  pub async fn set_geolocation(&self, lat: f64, lng: f64, accuracy: f64) -> Result<(), String> {
+  pub async fn set_geolocation(&self, lat: f64, lng: f64, accuracy: f64) -> crate::Result<()> {
     page_dispatch!(self, set_geolocation(lat, lng, accuracy))
   }
 
-  pub async fn set_locale(&self, locale: &str) -> Result<(), String> {
+  pub async fn set_locale(&self, locale: &str) -> crate::Result<()> {
     page_dispatch!(self, set_locale(locale))
   }
 
-  pub async fn set_timezone(&self, timezone_id: &str) -> Result<(), String> {
+  pub async fn set_timezone(&self, timezone_id: &str) -> crate::Result<()> {
     page_dispatch!(self, set_timezone(timezone_id))
   }
 
-  pub async fn emulate_media(&self, opts: &crate::options::EmulateMediaOptions) -> Result<(), String> {
+  pub async fn emulate_media(&self, opts: &crate::options::EmulateMediaOptions) -> crate::Result<()> {
     page_dispatch!(self, emulate_media(opts))
   }
 
-  pub async fn set_javascript_enabled(&self, enabled: bool) -> Result<(), String> {
+  pub async fn set_javascript_enabled(&self, enabled: bool) -> crate::Result<()> {
     page_dispatch!(self, set_javascript_enabled(enabled))
   }
 
-  pub async fn set_extra_http_headers(&self, headers: &rustc_hash::FxHashMap<String, String>) -> Result<(), String> {
+  pub async fn set_extra_http_headers(&self, headers: &rustc_hash::FxHashMap<String, String>) -> crate::Result<()> {
     page_dispatch!(self, set_extra_http_headers(headers))
   }
 
-  pub async fn grant_permissions(&self, permissions: &[String], origin: Option<&str>) -> Result<(), String> {
+  pub async fn grant_permissions(&self, permissions: &[String], origin: Option<&str>) -> crate::Result<()> {
     page_dispatch!(self, grant_permissions(permissions, origin))
   }
 
-  pub async fn set_bypass_csp(&self, enabled: bool) -> Result<(), String> {
+  pub async fn set_bypass_csp(&self, enabled: bool) -> crate::Result<()> {
     page_dispatch!(self, set_bypass_csp(enabled))
   }
 
-  pub async fn set_ignore_certificate_errors(&self, ignore: bool) -> Result<(), String> {
+  pub async fn set_ignore_certificate_errors(&self, ignore: bool) -> crate::Result<()> {
     page_dispatch!(self, set_ignore_certificate_errors(ignore))
   }
 
-  pub async fn set_download_behavior(&self, behavior: &str, download_path: &str) -> Result<(), String> {
+  pub async fn set_download_behavior(&self, behavior: &str, download_path: &str) -> crate::Result<()> {
     page_dispatch!(self, set_download_behavior(behavior, download_path))
   }
 
-  pub async fn set_http_credentials(&self, username: &str, password: &str) -> Result<(), String> {
+  pub async fn set_http_credentials(&self, username: &str, password: &str) -> crate::Result<()> {
     page_dispatch!(self, set_http_credentials(username, password))
   }
 
-  pub async fn set_service_workers_blocked(&self, blocked: bool) -> Result<(), String> {
+  pub async fn set_service_workers_blocked(&self, blocked: bool) -> crate::Result<()> {
     page_dispatch!(self, set_service_workers_blocked(blocked))
   }
 
-  pub async fn reset_permissions(&self) -> Result<(), String> {
+  pub async fn reset_permissions(&self) -> crate::Result<()> {
     page_dispatch!(self, reset_permissions())
   }
 
-  pub async fn set_focus_emulation_enabled(&self, enabled: bool) -> Result<(), String> {
+  pub async fn set_focus_emulation_enabled(&self, enabled: bool) -> crate::Result<()> {
     page_dispatch!(self, set_focus_emulation_enabled(enabled))
   }
 
   // ── Network ──
 
-  pub async fn set_network_state(&self, offline: bool, latency: f64, download: f64, upload: f64) -> Result<(), String> {
+  pub async fn set_network_state(&self, offline: bool, latency: f64, download: f64, upload: f64) -> crate::Result<()> {
     page_dispatch!(self, set_network_state(offline, latency, download, upload))
   }
 
   // ── Tracing ──
 
-  pub async fn start_tracing(&self) -> Result<(), String> {
+  pub async fn start_tracing(&self) -> crate::Result<()> {
     page_dispatch!(self, start_tracing())
   }
 
-  pub async fn stop_tracing(&self) -> Result<(), String> {
+  pub async fn stop_tracing(&self) -> crate::Result<()> {
     page_dispatch!(self, stop_tracing())
   }
 
-  pub async fn metrics(&self) -> Result<Vec<MetricData>, String> {
+  pub async fn metrics(&self) -> crate::Result<Vec<MetricData>> {
     page_dispatch!(self, metrics())
   }
 
   // ── Ref resolution ──
 
-  pub async fn resolve_backend_node(&self, backend_node_id: i64, ref_id: &str) -> Result<AnyElement, String> {
+  pub async fn resolve_backend_node(&self, backend_node_id: i64, ref_id: &str) -> crate::Result<AnyElement> {
     page_dispatch!(self, resolve_backend_node(backend_node_id, ref_id))
   }
 
@@ -1020,13 +1020,13 @@ impl AnyPage {
 
   // ── Element screenshot (by selector) ──
 
-  pub async fn screenshot_element(&self, selector: &str, format: ImageFormat) -> Result<Vec<u8>, String> {
+  pub async fn screenshot_element(&self, selector: &str, format: ImageFormat) -> crate::Result<Vec<u8>> {
     page_dispatch!(self, screenshot_element(selector, format))
   }
 
   // ── PDF generation ──
 
-  pub async fn pdf(&self, opts: crate::options::PdfOptions) -> Result<Vec<u8>, String> {
+  pub async fn pdf(&self, opts: crate::options::PdfOptions) -> crate::Result<Vec<u8>> {
     page_dispatch!(self, pdf(opts))
   }
 
@@ -1037,7 +1037,7 @@ impl AnyPage {
     quality: u8,
     max_width: u32,
     max_height: u32,
-  ) -> Result<tokio::sync::mpsc::UnboundedReceiver<(Vec<u8>, f64)>, String> {
+  ) -> crate::Result<tokio::sync::mpsc::UnboundedReceiver<(Vec<u8>, f64)>> {
     match self {
       AnyPage::CdpPipe(p) => p.start_screencast(quality, max_width, max_height).await,
       AnyPage::CdpRaw(p) => p.start_screencast(quality, max_width, max_height).await,
@@ -1048,7 +1048,7 @@ impl AnyPage {
     }
   }
 
-  pub async fn stop_screencast(&self) -> Result<(), String> {
+  pub async fn stop_screencast(&self) -> crate::Result<()> {
     match self {
       AnyPage::CdpPipe(p) => p.stop_screencast().await,
       AnyPage::CdpRaw(p) => p.stop_screencast().await,
@@ -1061,7 +1061,7 @@ impl AnyPage {
 
   // ── File upload ──
 
-  pub async fn set_file_input(&self, selector: &str, paths: &[String]) -> Result<(), String> {
+  pub async fn set_file_input(&self, selector: &str, paths: &[String]) -> crate::Result<()> {
     page_dispatch!(self, set_file_input(selector, paths))
   }
 
@@ -1087,17 +1087,17 @@ impl AnyPage {
     &self,
     matcher: crate::url_matcher::UrlMatcher,
     handler: crate::route::RouteHandler,
-  ) -> Result<(), String> {
+  ) -> crate::Result<()> {
     page_dispatch!(self, route(matcher, handler))
   }
 
-  pub async fn unroute(&self, matcher: &crate::url_matcher::UrlMatcher) -> Result<(), String> {
+  pub async fn unroute(&self, matcher: &crate::url_matcher::UrlMatcher) -> crate::Result<()> {
     page_dispatch!(self, unroute(matcher))
   }
 
   // ── Lifecycle ──
 
-  pub async fn close_page(&self, opts: crate::options::PageCloseOptions) -> Result<(), String> {
+  pub async fn close_page(&self, opts: crate::options::PageCloseOptions) -> crate::Result<()> {
     page_dispatch!(self, close_page(opts))
   }
 
@@ -1115,21 +1115,21 @@ impl AnyPage {
 
   // ── Exposed Functions ──
 
-  pub async fn expose_function(&self, name: &str, func: crate::events::ExposedFn) -> Result<(), String> {
+  pub async fn expose_function(&self, name: &str, func: crate::events::ExposedFn) -> crate::Result<()> {
     page_dispatch!(self, expose_function(name, func))
   }
 
-  pub async fn remove_exposed_function(&self, name: &str) -> Result<(), String> {
+  pub async fn remove_exposed_function(&self, name: &str) -> crate::Result<()> {
     page_dispatch!(self, remove_exposed_function(name))
   }
 
   // ── Init Scripts ──
 
-  pub async fn add_init_script(&self, source: &str) -> Result<String, String> {
+  pub async fn add_init_script(&self, source: &str) -> crate::Result<String> {
     page_dispatch!(self, add_init_script(source))
   }
 
-  pub async fn remove_init_script(&self, identifier: &str) -> Result<(), String> {
+  pub async fn remove_init_script(&self, identifier: &str) -> crate::Result<()> {
     page_dispatch!(self, remove_init_script(identifier))
   }
 
@@ -1322,35 +1322,35 @@ macro_rules! element_dispatch {
 }
 
 impl AnyElement {
-  pub async fn click(&self) -> Result<(), String> {
+  pub async fn click(&self) -> crate::Result<()> {
     element_dispatch!(self, click())
   }
 
-  pub async fn dblclick(&self) -> Result<(), String> {
+  pub async fn dblclick(&self) -> crate::Result<()> {
     element_dispatch!(self, dblclick())
   }
 
-  pub async fn hover(&self) -> Result<(), String> {
+  pub async fn hover(&self) -> crate::Result<()> {
     element_dispatch!(self, hover())
   }
 
-  pub async fn type_str(&self, text: &str) -> Result<(), String> {
+  pub async fn type_str(&self, text: &str) -> crate::Result<()> {
     element_dispatch!(self, type_str(text))
   }
 
-  pub async fn call_js_fn(&self, function: &str) -> Result<(), String> {
+  pub async fn call_js_fn(&self, function: &str) -> crate::Result<()> {
     element_dispatch!(self, call_js_fn(function))
   }
 
-  pub async fn call_js_fn_value(&self, function: &str) -> Result<Option<serde_json::Value>, String> {
+  pub async fn call_js_fn_value(&self, function: &str) -> crate::Result<Option<serde_json::Value>> {
     element_dispatch!(self, call_js_fn_value(function))
   }
 
-  pub async fn scroll_into_view(&self) -> Result<(), String> {
+  pub async fn scroll_into_view(&self) -> crate::Result<()> {
     element_dispatch!(self, scroll_into_view())
   }
 
-  pub async fn screenshot(&self, format: ImageFormat) -> Result<Vec<u8>, String> {
+  pub async fn screenshot(&self, format: ImageFormat) -> crate::Result<Vec<u8>> {
     element_dispatch!(self, screenshot(format))
   }
 }

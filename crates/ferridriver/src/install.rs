@@ -159,7 +159,7 @@ impl BrowserInstaller {
   ///
   /// Returns an error if the Chrome for Testing API is unreachable, the download
   /// fails after all retries, extraction fails, or the platform is unsupported.
-  pub async fn install_chromium<F>(&self, progress: F) -> Result<String, String>
+  pub async fn install_chromium<F>(&self, progress: F) -> crate::Result<String>
   where
     F: Fn(InstallProgress),
   {
@@ -232,9 +232,7 @@ impl BrowserInstaller {
           last_error = format!("attempt {attempt}/{DOWNLOAD_RETRIES}: {e}");
           let _ = tokio::fs::remove_file(&zip_path).await;
           if attempt == DOWNLOAD_RETRIES {
-            return Err(format!(
-              "download failed after {DOWNLOAD_RETRIES} attempts: {last_error}"
-            ));
+            return Err(format!("download failed after {DOWNLOAD_RETRIES} attempts: {last_error}").into());
           }
         },
       }
@@ -268,9 +266,7 @@ impl BrowserInstaller {
 
     let path = executable.to_string_lossy().to_string();
     if !executable.exists() {
-      return Err(format!(
-        "extraction completed but chrome executable not found at: {path}"
-      ));
+      return Err(format!("extraction completed but chrome executable not found at: {path}").into());
     }
 
     // Write marker file (matches Playwright's .downloaded marker)
@@ -285,7 +281,7 @@ impl BrowserInstaller {
   }
 
   /// Download a file with streaming progress.
-  async fn download_file<F>(&self, url: &str, dest: &Path, progress: &F) -> Result<(), String>
+  async fn download_file<F>(&self, url: &str, dest: &Path, progress: &F) -> crate::Result<()>
   where
     F: Fn(InstallProgress),
   {
@@ -297,7 +293,7 @@ impl BrowserInstaller {
       .map_err(|e| format!("request failed: {e}"))?;
 
     if !response.status().is_success() {
-      return Err(format!("HTTP {}: {url}", response.status()));
+      return Err(format!("HTTP {}: {url}", response.status()).into());
     }
 
     let total_bytes = response.content_length();
@@ -334,7 +330,7 @@ impl BrowserInstaller {
   ///
   /// Returns an error if the Linux distribution is unsupported or `apt-get`/`pacman` fails.
   #[allow(clippy::unused_async)] // async needed on linux cfg, not on macOS/Windows
-  pub async fn install_system_deps<F>(&self, progress: F) -> Result<(), String>
+  pub async fn install_system_deps<F>(&self, progress: F) -> crate::Result<()>
   where
     F: Fn(InstallProgress),
   {
@@ -350,9 +346,7 @@ impl BrowserInstaller {
       let (pkg_manager, packages) = system_packages_for_distro(&distro);
 
       if packages.is_empty() {
-        return Err(format!(
-          "unsupported Linux distribution: {distro}. Cannot determine required packages."
-        ));
+        return Err(format!("unsupported Linux distribution: {distro}. Cannot determine required packages.").into());
       }
 
       progress(InstallProgress::InstallingDeps { distro: distro.clone() });
@@ -388,7 +382,7 @@ impl BrowserInstaller {
         .map_err(|e| format!("failed to run apt-get: {e}"))?;
 
       if !status.success() {
-        return Err(format!("apt-get exited with code: {}", status.code().unwrap_or(-1)));
+        return Err(format!("apt-get exited with code: {}", status.code().unwrap_or(-1)).into());
       }
 
       progress(InstallProgress::DepsInstalled);
@@ -431,7 +425,7 @@ impl BrowserInstaller {
   ///
   /// Returns an error if the Chrome for Testing API is unreachable, the download
   /// fails after all retries, extraction fails, or the platform is unsupported.
-  pub async fn install_chromium_headless_shell<F>(&self, progress: F) -> Result<String, String>
+  pub async fn install_chromium_headless_shell<F>(&self, progress: F) -> crate::Result<String>
   where
     F: Fn(InstallProgress),
   {
@@ -499,9 +493,7 @@ impl BrowserInstaller {
           last_error = format!("attempt {attempt}/{DOWNLOAD_RETRIES}: {e}");
           let _ = tokio::fs::remove_file(&zip_path).await;
           if attempt == DOWNLOAD_RETRIES {
-            return Err(format!(
-              "download failed after {DOWNLOAD_RETRIES} attempts: {last_error}"
-            ));
+            return Err(format!("download failed after {DOWNLOAD_RETRIES} attempts: {last_error}").into());
           }
         },
       }
@@ -532,9 +524,7 @@ impl BrowserInstaller {
 
     let path = executable.to_string_lossy().to_string();
     if !executable.exists() {
-      return Err(format!(
-        "extraction completed but chrome-headless-shell executable not found at: {path}"
-      ));
+      return Err(format!("extraction completed but chrome-headless-shell executable not found at: {path}").into());
     }
 
     let _ = tokio::fs::write(&marker_file, version.as_bytes()).await;
@@ -580,7 +570,7 @@ impl BrowserInstaller {
   ///
   /// Returns an error if the Mozilla API is unreachable, the download
   /// fails after all retries, extraction fails, or the platform is unsupported.
-  pub async fn install_firefox<F>(&self, progress: F) -> Result<String, String>
+  pub async fn install_firefox<F>(&self, progress: F) -> crate::Result<String>
   where
     F: Fn(InstallProgress),
   {
@@ -651,9 +641,7 @@ impl BrowserInstaller {
           last_error = format!("attempt {attempt}/{DOWNLOAD_RETRIES}: {e}");
           let _ = tokio::fs::remove_file(&archive_path).await;
           if attempt == DOWNLOAD_RETRIES {
-            return Err(format!(
-              "Firefox download failed after {DOWNLOAD_RETRIES} attempts: {last_error}"
-            ));
+            return Err(format!("Firefox download failed after {DOWNLOAD_RETRIES} attempts: {last_error}").into());
           }
         },
       }
@@ -687,9 +675,7 @@ impl BrowserInstaller {
 
     let path = executable.to_string_lossy().to_string();
     if !executable.exists() {
-      return Err(format!(
-        "extraction completed but firefox executable not found at: {path}"
-      ));
+      return Err(format!("extraction completed but firefox executable not found at: {path}").into());
     }
 
     // Write marker file
@@ -1006,7 +992,7 @@ fn arch_chromium_packages() -> Vec<&'static str> {
 
 /// Return (`platform_dir`, `archive_filename`, `archive_extension`) for Firefox downloads.
 /// Matches Puppeteer's `archive()` and `platformName()` for stable channel.
-fn firefox_archive_info(version: &str) -> Result<(String, String, String), String> {
+fn firefox_archive_info(version: &str) -> crate::Result<(String, String, String)> {
   let os = std::env::consts::OS;
   let arch = std::env::consts::ARCH;
 
@@ -1027,7 +1013,7 @@ fn firefox_archive_info(version: &str) -> Result<(String, String, String), Strin
     ("macos", "x86_64" | "aarch64") => Ok(("mac".into(), format!("Firefox {version}.dmg"), ".dmg".into())),
     ("windows", "x86_64") => Ok(("win64".into(), format!("Firefox Setup {version}.exe"), ".exe".into())),
     ("windows", "x86") => Ok(("win32".into(), format!("Firefox Setup {version}.exe"), ".exe".into())),
-    _ => Err(format!("unsupported platform for Firefox: {os}-{arch}")),
+    _ => Err(format!("unsupported platform for Firefox: {os}-{arch}").into()),
   }
 }
 
@@ -1044,7 +1030,7 @@ fn firefox_executable_path(install_dir: &Path) -> PathBuf {
 }
 
 /// Extract a Firefox archive (tar.bz2, tar.xz, or DMG).
-fn extract_firefox_archive(archive_path: &Path, dest: &Path) -> Result<(), String> {
+fn extract_firefox_archive(archive_path: &Path, dest: &Path) -> crate::Result<()> {
   let path_str = archive_path.to_string_lossy();
 
   if path_str.ends_with(".tar.bz2") {
@@ -1054,33 +1040,29 @@ fn extract_firefox_archive(archive_path: &Path, dest: &Path) -> Result<(), Strin
   } else if path_str.ends_with(".dmg") {
     extract_dmg(archive_path, dest)
   } else {
-    Err(format!("unsupported Firefox archive format: {path_str}"))
+    Err(format!("unsupported Firefox archive format: {path_str}").into())
   }
 }
 
 /// Extract a .tar.bz2 archive.
-fn extract_tar_bz2(archive_path: &Path, dest: &Path) -> Result<(), String> {
-  let file = std::fs::File::open(archive_path).map_err(|e| format!("failed to open tar.bz2: {e}"))?;
+fn extract_tar_bz2(archive_path: &Path, dest: &Path) -> crate::Result<()> {
+  let file = std::fs::File::open(archive_path).map_err(crate::error::FerriError::from)?;
   let decoder = bzip2::read::BzDecoder::new(file);
   let mut archive = tar::Archive::new(decoder);
-  archive
-    .unpack(dest)
-    .map_err(|e| format!("failed to extract tar.bz2: {e}"))
+  archive.unpack(dest).map_err(crate::error::FerriError::from)
 }
 
 /// Extract a .tar.xz archive.
-fn extract_tar_xz(archive_path: &Path, dest: &Path) -> Result<(), String> {
-  let file = std::fs::File::open(archive_path).map_err(|e| format!("failed to open tar.xz: {e}"))?;
+fn extract_tar_xz(archive_path: &Path, dest: &Path) -> crate::Result<()> {
+  let file = std::fs::File::open(archive_path).map_err(crate::error::FerriError::from)?;
   let decoder = xz2::read::XzDecoder::new(file);
   let mut archive = tar::Archive::new(decoder);
-  archive
-    .unpack(dest)
-    .map_err(|e| format!("failed to extract tar.xz: {e}"))
+  archive.unpack(dest).map_err(crate::error::FerriError::from)
 }
 
 /// Extract a .dmg (macOS disk image) by mounting, copying, and unmounting.
 /// Same approach as Puppeteer: hdiutil attach -> cp -R -> hdiutil detach.
-fn extract_dmg(dmg_path: &Path, dest: &Path) -> Result<(), String> {
+fn extract_dmg(dmg_path: &Path, dest: &Path) -> crate::Result<()> {
   // Mount the DMG
   let output = std::process::Command::new("hdiutil")
     .args(["attach", "-nobrowse", "-noautoopen"])
@@ -1089,10 +1071,7 @@ fn extract_dmg(dmg_path: &Path, dest: &Path) -> Result<(), String> {
     .map_err(|e| format!("hdiutil attach failed: {e}"))?;
 
   if !output.status.success() {
-    return Err(format!(
-      "hdiutil attach failed: {}",
-      String::from_utf8_lossy(&output.stderr)
-    ));
+    return Err(format!("hdiutil attach failed: {}", String::from_utf8_lossy(&output.stderr)).into());
   }
 
   let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1106,7 +1085,7 @@ fn extract_dmg(dmg_path: &Path, dest: &Path) -> Result<(), String> {
     .ok_or("could not find volume mount path in hdiutil output")?;
 
   // Find the .app directory inside the mount
-  let result = (|| -> Result<(), String> {
+  let result = (|| -> crate::Result<()> {
     let entries = std::fs::read_dir(&mount_path).map_err(|e| format!("failed to read mounted volume: {e}"))?;
     let app_name = entries
       .filter_map(std::result::Result::ok)
@@ -1141,7 +1120,7 @@ fn extract_dmg(dmg_path: &Path, dest: &Path) -> Result<(), String> {
 // Zip extraction (for Chrome)
 // ---------------------------------------------------------------------------
 
-fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
+fn extract_zip(zip_path: &Path, dest: &Path) -> crate::Result<()> {
   let file = std::fs::File::open(zip_path).map_err(|e| format!("failed to open zip: {e}"))?;
   let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("failed to read zip archive: {e}"))?;
 

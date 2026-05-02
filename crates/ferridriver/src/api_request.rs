@@ -359,7 +359,10 @@ impl APIRequestContext {
       .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
       .collect();
 
-    let body_bytes = response.bytes().await.map_err(|e| format!("read response body: {e}"))?;
+    let body_bytes = response
+      .bytes()
+      .await
+      .map_err(|e| crate::error::FerriError::backend(format!("read response body: {e}")))?;
 
     let api_response = APIResponse {
       status_code,
@@ -371,7 +374,7 @@ impl APIRequestContext {
 
     // Fail on status code if requested.
     if opts.fail_on_status_code.unwrap_or(false) && !api_response.ok() {
-      return Err(crate::error::FerriError::Other(format!(
+      return Err(crate::error::FerriError::backend(format!(
         "{} {resolved_url} failed: {} {}",
         method_str,
         api_response.status(),

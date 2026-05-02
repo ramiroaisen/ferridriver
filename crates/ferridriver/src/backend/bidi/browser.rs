@@ -39,7 +39,7 @@ impl BidiBrowser {
     method: &str,
     context_id: &str,
     timeout: std::time::Duration,
-  ) -> Result<(), String> {
+  ) -> crate::Result<()> {
     let mut rx = self.session.transport.subscribe_events();
     let wait_for_event = async {
       while let Ok(event) = rx.recv().await {
@@ -50,14 +50,14 @@ impl BidiBrowser {
           return Ok(());
         }
       }
-      Err(format!("BiDi event stream closed while waiting for {method}"))
+      Err(format!("BiDi event stream closed while waiting for {method}").into())
     };
     tokio::time::timeout(timeout, wait_for_event)
       .await
       .map_err(|_| format!("Timed out waiting for {method} on {context_id}"))?
   }
 
-  async fn list_context_ids_for_user_context(&self, user_context_id: &str) -> Result<Vec<String>, String> {
+  async fn list_context_ids_for_user_context(&self, user_context_id: &str) -> crate::Result<Vec<String>> {
     let result = self
       .session
       .transport
@@ -79,7 +79,7 @@ impl BidiBrowser {
 
   /// Launch a browser with `BiDi` support.
   /// Auto-detects Firefox vs Chrome from the binary path.
-  pub async fn launch_with_flags(browser_path: &str, flags: &[String]) -> Result<Self, String> {
+  pub async fn launch_with_flags(browser_path: &str, flags: &[String]) -> crate::Result<Self> {
     // Determine if headless from flags
     let headless = flags.iter().any(|f| f == "--headless");
     let (session, child, profile_dir) = Box::pin(BidiSession::launch(browser_path, flags, headless)).await?;
@@ -93,7 +93,7 @@ impl BidiBrowser {
   }
 
   /// Connect to an existing `BiDi` endpoint via WebSocket.
-  pub async fn connect(ws_url: &str) -> Result<Self, String> {
+  pub async fn connect(ws_url: &str) -> crate::Result<Self> {
     let session = BidiSession::connect(ws_url).await?;
     Ok(Self {
       session: Arc::new(session),
@@ -103,7 +103,7 @@ impl BidiBrowser {
   }
 
   /// Create a new isolated user context.
-  pub async fn new_context(&self) -> Result<String, String> {
+  pub async fn new_context(&self) -> crate::Result<String> {
     let result = self
       .session
       .transport
@@ -117,7 +117,7 @@ impl BidiBrowser {
   }
 
   /// Dispose an isolated user context.
-  pub async fn dispose_context(&self, user_context_id: &str) -> Result<(), String> {
+  pub async fn dispose_context(&self, user_context_id: &str) -> crate::Result<()> {
     let context_ids = self
       .list_context_ids_for_user_context(user_context_id)
       .await
@@ -142,7 +142,7 @@ impl BidiBrowser {
   }
 
   /// List all open pages (top-level browsing contexts).
-  pub async fn pages(&self) -> Result<Vec<AnyPage>, String> {
+  pub async fn pages(&self) -> crate::Result<Vec<AnyPage>> {
     let result = self
       .session
       .transport
@@ -173,7 +173,7 @@ impl BidiBrowser {
     url: &str,
     user_context_id: Option<&str>,
     viewport: Option<&crate::options::ViewportConfig>,
-  ) -> Result<AnyPage, String> {
+  ) -> crate::Result<AnyPage> {
     let mut params = json!({"type": "window"});
     if let Some(user_context_id) = user_context_id {
       params["userContext"] = json!(user_context_id);
@@ -219,7 +219,7 @@ impl BidiBrowser {
   }
 
   /// Close the browser.
-  pub async fn close(&mut self) -> Result<(), String> {
+  pub async fn close(&mut self) -> crate::Result<()> {
     // Try graceful BiDi close first
     let _ = self.session.transport.send_command("browser.close", json!({})).await;
 

@@ -584,6 +584,7 @@ impl McpServer {
       selector.map(String::as_str),
     )
     .await
+    .map_err(|e| e.to_string())
   }
 
   /// Build snapshot text and store `ref_map` for the context.

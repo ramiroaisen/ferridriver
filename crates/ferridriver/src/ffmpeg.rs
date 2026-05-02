@@ -57,8 +57,8 @@ pub fn video_content_type() -> &'static str {
 /// # Errors
 ///
 /// Returns an error if ffmpeg is not found on PATH.
-fn find_ffmpeg() -> Result<&'static str, String> {
-  static FFMPEG: OnceLock<Result<&'static str, String>> = OnceLock::new();
+fn find_ffmpeg() -> crate::Result<&'static str> {
+  static FFMPEG: OnceLock<crate::Result<&'static str>> = OnceLock::new();
   FFMPEG
     .get_or_init(|| {
       // Check if ffmpeg is available
@@ -83,7 +83,7 @@ fn find_ffmpeg() -> Result<&'static str, String> {
 
 /// Spawn an ffmpeg process that reads JPEG frames from stdin and writes video.
 /// Uses the same codec settings as Playwright.
-fn spawn_ffmpeg(output_path: &Path, width: u32, height: u32, fps: u32) -> Result<Child, String> {
+fn spawn_ffmpeg(output_path: &Path, width: u32, height: u32, fps: u32) -> crate::Result<Child> {
   let ffmpeg = find_ffmpeg()?;
   let w = width & !1;
   let h = height & !1;
@@ -173,7 +173,7 @@ fn spawn_ffmpeg(output_path: &Path, width: u32, height: u32, fps: u32) -> Result
     .stdout(Stdio::null())
     .stderr(Stdio::piped())
     .spawn()
-    .map_err(|e| format!("failed to spawn ffmpeg: {e}"))
+    .map_err(crate::error::FerriError::from)
 }
 
 /// Channel-driven encoding: pipe JPEG frames to ffmpeg subprocess as they arrive.
@@ -188,9 +188,12 @@ pub fn encode_stream(
   width: u32,
   height: u32,
   fps: u32,
-) -> Result<(), String> {
+) -> crate::Result<()> {
   let mut child = spawn_ffmpeg(output_path, width, height, fps)?;
-  let mut stdin = child.stdin.take().ok_or("failed to open ffmpeg stdin")?;
+  let mut stdin = child
+    .stdin
+    .take()
+    .ok_or_else(|| crate::error::FerriError::backend("failed to open ffmpeg stdin"))?;
 
   let mut first_ts: Option<f64> = None;
   let mut last_frame: Option<Vec<u8>> = None;
@@ -230,7 +233,7 @@ pub fn encode_stream(
   let output = child.wait_with_output().map_err(|e| format!("ffmpeg wait: {e}"))?;
   if !output.status.success() {
     let stderr = String::from_utf8_lossy(&output.stderr);
-    return Err(format!("ffmpeg exited with {}: {stderr}", output.status));
+    return Err(format!("ffmpeg exited with {}: {stderr}", output.status).into());
   }
   Ok(())
 }
@@ -246,9 +249,12 @@ pub fn encode_frames(
   width: u32,
   height: u32,
   fps: u32,
-) -> Result<(), String> {
+) -> crate::Result<()> {
   let mut child = spawn_ffmpeg(output_path, width, height, fps)?;
-  let mut stdin = child.stdin.take().ok_or("failed to open ffmpeg stdin")?;
+  let mut stdin = child
+    .stdin
+    .take()
+    .ok_or_else(|| crate::error::FerriError::backend("failed to open ffmpeg stdin"))?;
 
   let mut first_ts: Option<f64> = None;
   let mut last_frame: Option<&[u8]> = None;
@@ -287,7 +293,7 @@ pub fn encode_frames(
   let output = child.wait_with_output().map_err(|e| format!("ffmpeg wait: {e}"))?;
   if !output.status.success() {
     let stderr = String::from_utf8_lossy(&output.stderr);
-    return Err(format!("ffmpeg exited with {}: {stderr}", output.status));
+    return Err(format!("ffmpeg exited with {}: {stderr}", output.status).into());
   }
   Ok(())
 }

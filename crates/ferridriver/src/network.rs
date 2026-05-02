@@ -294,7 +294,7 @@ impl Request {
     }
     serde_json::from_str(&body)
       .map(Some)
-      .map_err(|_| FerriError::Other(format!("POST data is not a valid JSON object: {body}")))
+      .map_err(|_| FerriError::invalid_argument("post_data", format!("POST data is not a valid JSON object: {body}")))
   }
 
   /// Provisional headers (matches Playwright's deprecated `headers()`).
@@ -458,7 +458,7 @@ impl Request {
   pub async fn sizes(&self) -> Result<RequestSizes> {
     let state = self.inner.state.read().await;
     if state.response.is_none() {
-      return Err(FerriError::Other("Unable to fetch sizes for failed request".into()));
+      return Err(FerriError::backend("Unable to fetch sizes for failed request"));
     }
     Ok(**self.inner.sizes.load())
   }
@@ -573,7 +573,7 @@ struct ResponseMutState {
   body_cache: Option<Vec<u8>>,
   remote_addr: Option<RemoteAddr>,
   security_details: Option<SecurityDetails>,
-  finished: Option<std::result::Result<(), String>>,
+  finished: Option<crate::Result<()>>,
 }
 
 impl Response {
@@ -718,7 +718,7 @@ impl Response {
   ///
   /// Returns the backend-reported failure text when the underlying
   /// load failed (e.g. `loadingFailed.errorText` on CDP).
-  pub async fn finished(&self) -> std::result::Result<(), String> {
+  pub async fn finished(&self) -> crate::Result<()> {
     loop {
       let waiter = self.inner.finished_notify.notified();
       tokio::pin!(waiter);
@@ -764,7 +764,7 @@ impl Response {
   /// Returns an error if the body fetch fails or the bytes are not UTF-8.
   pub async fn text(&self) -> Result<String> {
     let bytes = self.body().await?;
-    String::from_utf8(bytes).map_err(|e| FerriError::Other(format!("response body is not UTF-8: {e}")))
+    String::from_utf8(bytes).map_err(|e| FerriError::backend(format!("response body is not UTF-8: {e}")))
   }
 
   /// Body parsed as JSON.
@@ -803,7 +803,7 @@ impl Response {
     self.inner.finished_notify.notify_waiters();
   }
 
-  pub async fn finish_failure(&self, error: String) {
+  pub async fn finish_failure(&self, error: FerriError) {
     let mut state = self.inner.state.write().await;
     state.finished = Some(Err(error));
     drop(state);
