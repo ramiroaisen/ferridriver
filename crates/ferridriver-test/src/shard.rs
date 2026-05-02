@@ -1,17 +1,13 @@
 //! Deterministic sharding for distributing tests across CI machines.
 
-use std::hash::{Hash, Hasher};
-
-use rustc_hash::FxHasher;
+use xxhash_rust::xxh3::xxh3_64;
 
 use crate::model::{ShardInfo, TestPlan};
 
 /// Deterministic sharding: assigns each test to a shard based on its ID hash.
 /// Same test always goes to the same shard regardless of other tests.
 fn belongs_to_shard(full_name: &str, shard: &ShardInfo) -> bool {
-  let mut hasher = FxHasher::default();
-  full_name.hash(&mut hasher);
-  let hash = hasher.finish();
+  let hash = xxh3_64(full_name.as_bytes());
   (hash % u64::from(shard.total)) == u64::from(shard.current - 1)
 }
 

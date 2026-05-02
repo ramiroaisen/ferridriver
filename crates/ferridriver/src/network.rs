@@ -13,7 +13,6 @@
 
 use crate::error::{FerriError, Result};
 use arc_swap::{ArcSwap, ArcSwapOption};
-use rustc_hash::FxHashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -21,7 +20,7 @@ use tokio::sync::{Mutex as AsyncMutex, Notify, RwLock};
 
 /// Header map. Lower-case-keyed combined view (matches Playwright's
 /// `headers(): Headers` shape).
-pub type Headers = FxHashMap<String, String>;
+pub type Headers = crate::hash::HashMap<String, String>;
 
 /// Single header entry preserving original case and duplicate keys.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -926,8 +925,8 @@ pub fn headers_to_array(map: &Headers) -> Vec<HeaderEntry> {
 
 #[must_use]
 pub fn headers_array_to_map(arr: &[HeaderEntry]) -> Headers {
-  let mut out: Headers = FxHashMap::default();
-  let mut groups: FxHashMap<String, Vec<&str>> = FxHashMap::default();
+  let mut out: Headers = crate::hash::HashMap::default();
+  let mut groups: crate::hash::HashMap<String, Vec<&str>> = crate::hash::HashMap::default();
   for h in arr {
     let lc = h.name.to_ascii_lowercase();
     groups.entry(lc).or_default().push(&h.value);

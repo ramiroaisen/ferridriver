@@ -65,6 +65,9 @@ pub mod ffmpeg;
 pub mod selectors;
 pub mod video;
 
+// HashMap and HashSet with xxhash Hasher
+pub mod hash;
+
 // ── BDD steps (use crate-internal APIs) ──
 #[macro_use]
 pub mod steps;

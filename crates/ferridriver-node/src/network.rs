@@ -7,6 +7,7 @@
 //! getter; everywhere Playwright exposes a method we keep the method
 //! shape so `request.url()` matches the canonical `test.d.ts`.
 
+use ferridriver::hash::HashMap;
 use ferridriver::network::{
   HeaderEntry as CoreHeaderEntry, RemoteAddr as CoreRemoteAddr, Request as CoreRequest, RequestSizes as CoreSizes,
   RequestTiming as CoreTiming, Response as CoreResponse, SecurityDetails as CoreSecurityDetails,
@@ -14,7 +15,6 @@ use ferridriver::network::{
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 // ── HeaderEntry / Headers wire shapes ─────────────────────────────────
@@ -204,7 +204,7 @@ impl Request {
 
   /// Mirrors Playwright `request.headers(): Record<string, string>`.
   #[napi(ts_return_type = "Record<string, string>")]
-  pub fn headers(&self) -> FxHashMap<String, String> {
+  pub fn headers(&self) -> HashMap<String, String> {
     self.inner.headers()
   }
 
@@ -216,7 +216,7 @@ impl Request {
 
   /// Mirrors Playwright `request.allHeaders(): Promise<Headers>`.
   #[napi(ts_return_type = "Promise<Record<string, string>>")]
-  pub async fn all_headers(&self) -> Result<FxHashMap<String, String>> {
+  pub async fn all_headers(&self) -> Result<HashMap<String, String>> {
     self
       .inner
       .all_headers()
@@ -376,7 +376,7 @@ impl Response {
 
   /// Mirrors Playwright `response.headers(): Record<string, string>`.
   #[napi(ts_return_type = "Record<string, string>")]
-  pub fn headers(&self) -> FxHashMap<String, String> {
+  pub fn headers(&self) -> HashMap<String, String> {
     self.inner.headers()
   }
 
@@ -388,7 +388,7 @@ impl Response {
 
   /// Mirrors Playwright `response.allHeaders(): Promise<Headers>`.
   #[napi(ts_return_type = "Promise<Record<string, string>>")]
-  pub async fn all_headers(&self) -> Result<FxHashMap<String, String>> {
+  pub async fn all_headers(&self) -> Result<HashMap<String, String>> {
     self
       .inner
       .all_headers()

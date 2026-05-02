@@ -17,7 +17,6 @@
 //! (insertion order), then child frames in discovery order.
 
 use crate::backend::FrameInfo;
-use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 /// One cached frame record.
@@ -38,7 +37,7 @@ pub(crate) struct FrameCache {
   /// when iterating `_frames`).
   pub(crate) order: Vec<Arc<str>>,
   /// `frame_id -> record`.
-  pub(crate) by_id: FxHashMap<Arc<str>, FrameRecord>,
+  pub(crate) by_id: crate::hash::HashMap<Arc<str>, FrameRecord>,
   /// Cached main-frame id (first frame whose `parent_frame_id` is `None`).
   pub(crate) main_id: Option<Arc<str>>,
 }

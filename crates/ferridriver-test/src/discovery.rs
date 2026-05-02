@@ -12,6 +12,7 @@ use std::path::Path;
 use crate::model::{
   ExpectedStatus, Hooks, TestAnnotation, TestCase, TestFailure, TestId, TestInfo, TestPlan, TestSuite,
 };
+use ferridriver::hash::{HashMap, HashSet};
 
 // ── Inventory-based registration (populated by #[ferritest] macro) ──
 
@@ -70,7 +71,7 @@ fn suite_from_module_path(mp: &str) -> &str {
 
 /// Collect all registered tests and build a `TestPlan`.
 pub fn collect_rust_tests(config: &TestConfig) -> TestPlan {
-  let mut suites: rustc_hash::FxHashMap<String, TestSuite> = rustc_hash::FxHashMap::default();
+  let mut suites: HashMap<String, TestSuite> = HashMap::default();
 
   for reg in inventory::iter::<TestRegistration> {
     let file = reg.file.to_string();
@@ -299,7 +300,7 @@ pub fn filter_by_rerun(plan: &mut TestPlan, rerun_path: &Path) {
     },
   };
 
-  let rerun_set: rustc_hash::FxHashSet<String> = content
+  let rerun_set: HashSet<String> = content
     .lines()
     .map(|l| l.trim().to_string())
     .filter(|l| !l.is_empty())

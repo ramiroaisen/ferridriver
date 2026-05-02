@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dashmap::DashMap;
-use rustc_hash::FxHashMap;
+use ferridriver::hash::HashMap;
 
 use ferridriver::Browser;
 use ferridriver::backend::BackendKind;
@@ -72,7 +72,7 @@ struct FixturePoolInner {
   /// Cached fixture values — lock-free concurrent map.
   values: DashMap<String, ArcValue>,
   /// Fixture definitions (shared reference).
-  defs: Arc<FxHashMap<String, FixtureDef>>,
+  defs: Arc<HashMap<String, FixtureDef>>,
   /// Teardown stack: LIFO order for cleanup. std::sync::Mutex — only locked briefly.
   teardown_stack: std::sync::Mutex<Vec<(String, TeardownFn)>>,
   /// Parent pool (for cross-scope access).
@@ -83,7 +83,7 @@ struct FixturePoolInner {
 
 impl FixturePool {
   /// Create a new root fixture pool.
-  pub fn new(defs: FxHashMap<String, FixtureDef>, scope: FixtureScope) -> Self {
+  pub fn new(defs: HashMap<String, FixtureDef>, scope: FixtureScope) -> Self {
     Self {
       inner: Arc::new(FixturePoolInner {
         values: DashMap::new(),
@@ -113,7 +113,7 @@ impl FixturePool {
   /// This is the core building block for per-test fixture graphs: worker/global
   /// fixtures live in the parent pool, while test-scoped fixtures can be
   /// specialized for a single test execution without mutating shared state.
-  pub fn child_with_defs(&self, defs: FxHashMap<String, FixtureDef>, scope: FixtureScope) -> Self {
+  pub fn child_with_defs(&self, defs: HashMap<String, FixtureDef>, scope: FixtureScope) -> Self {
     let mut merged = (*self.inner.defs).clone();
     merged.extend(defs);
     Self {
@@ -297,12 +297,12 @@ fn scope_rank(scope: FixtureScope) -> u8 {
 }
 
 /// Validate that fixture definitions form a DAG (no cycles).
-pub fn validate_dag(defs: &FxHashMap<String, FixtureDef>) -> Result<(), String> {
+pub fn validate_dag(defs: &HashMap<String, FixtureDef>) -> Result<(), String> {
   use std::collections::HashSet;
 
   fn visit(
     name: &str,
-    defs: &FxHashMap<String, FixtureDef>,
+    defs: &HashMap<String, FixtureDef>,
     visiting: &mut HashSet<String>,
     visited: &mut HashSet<String>,
   ) -> Result<(), String> {
@@ -331,8 +331,8 @@ pub fn validate_dag(defs: &FxHashMap<String, FixtureDef>) -> Result<(), String> 
 }
 
 /// Built-in fixture definitions for the ferridriver test runner.
-pub fn builtin_fixtures(browser_config: &BrowserConfig) -> FxHashMap<String, FixtureDef> {
-  let mut defs = FxHashMap::default();
+pub fn builtin_fixtures(browser_config: &BrowserConfig) -> HashMap<String, FixtureDef> {
+  let mut defs = HashMap::default();
 
   let backend = match browser_config.backend.as_str() {
     "cdp-raw" => BackendKind::CdpRaw,

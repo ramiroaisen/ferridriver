@@ -38,7 +38,7 @@ impl Reporter for BddJunitReporter {
   async fn finalize(&mut self) -> Result<(), String> {
     use std::fmt::Write;
 
-    let mut suites: rustc_hash::FxHashMap<String, Vec<&TestOutcome>> = rustc_hash::FxHashMap::default();
+    let mut suites: ferridriver::hash::HashMap<String, Vec<&TestOutcome>> = ferridriver::hash::HashMap::default();
     for result in &self.results {
       let suite = result
         .test_id

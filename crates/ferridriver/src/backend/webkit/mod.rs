@@ -1861,7 +1861,7 @@ impl WebKitPage {
             }; // read lock -- hot path
             for route in routes.iter() {
               if route.matcher.matches(url) {
-                let headers: rustc_hash::FxHashMap<String, String> =
+                let headers: crate::hash::HashMap<String, String> =
                   serde_json::from_str(headers_json).unwrap_or_default();
                 let intercepted = crate::route::InterceptedRequest {
                   request_id: String::new(),
@@ -2260,7 +2260,7 @@ async fn drain_network_events(
   let mut dest = net_log.write().await;
   // Per-drain request lookup index — every Response/Failure event
   // refers back to the originating request by JS-side seq id.
-  let mut by_id: rustc_hash::FxHashMap<String, network::Request> = rustc_hash::FxHashMap::default();
+  let mut by_id: crate::hash::HashMap<String, network::Request> = crate::hash::HashMap::default();
   for r in dest.iter() {
     by_id.insert(r.id().to_string(), r.clone());
   }

@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rustc_hash::FxHashMap;
+use ferridriver::hash::HashMap;
 use serde::Serialize;
 
 use crate::model::{AttachmentBody, TestAnnotation, TestOutcome, TestStatus, TestStep};
@@ -114,7 +114,7 @@ pub struct AllureReporter {
   /// Run-level environment info.
   env: BTreeMap<String, String>,
   /// Per-test start timestamps (recorded on TestStarted events).
-  test_starts: FxHashMap<String, u64>,
+  test_starts: HashMap<String, u64>,
   /// Run start timestamp (epoch ms).
   run_start: u64,
 }
@@ -136,7 +136,7 @@ impl AllureReporter {
       suite_title: None,
       results: Vec::new(),
       env: BTreeMap::new(),
-      test_starts: FxHashMap::default(),
+      test_starts: HashMap::default(),
       run_start: epoch_ms(),
     }
   }

@@ -121,14 +121,14 @@ pub fn serialized_value_to_quickjs<'js>(
   ctx: &Ctx<'js>,
   value: &ferridriver::protocol::SerializedValue,
 ) -> rquickjs::Result<Value<'js>> {
-  let mut refs: rustc_hash::FxHashMap<u32, Value<'js>> = rustc_hash::FxHashMap::default();
+  let mut refs: ferridriver::hash::HashMap<u32, Value<'js>> = ferridriver::hash::HashMap::default();
   rehydrate(ctx, value, &mut refs)
 }
 
 fn rehydrate<'js>(
   ctx: &Ctx<'js>,
   value: &ferridriver::protocol::SerializedValue,
-  refs: &mut rustc_hash::FxHashMap<u32, Value<'js>>,
+  refs: &mut ferridriver::hash::HashMap<u32, Value<'js>>,
 ) -> rquickjs::Result<Value<'js>> {
   use ferridriver::protocol::{ErrorValue, RegExpValue, SerializedValue, SpecialValue};
 

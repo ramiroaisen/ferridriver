@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use base64::Engine;
-use rustc_hash::FxHashMap;
 use serde_json::json;
 use tokio::sync::RwLock;
 
@@ -35,8 +34,8 @@ pub struct BidiPage {
   routes: Arc<RwLock<Vec<crate::route::RegisteredRoute>>>,
   intercept_ids: Arc<RwLock<Vec<String>>>,
   closed: Arc<AtomicBool>,
-  preload_scripts: Arc<RwLock<FxHashMap<String, String>>>,
-  exposed_fns: Arc<RwLock<FxHashMap<String, crate::events::ExposedFn>>>,
+  preload_scripts: Arc<RwLock<crate::hash::HashMap<String, String>>>,
+  exposed_fns: Arc<RwLock<crate::hash::HashMap<String, crate::events::ExposedFn>>>,
   pub dialog_handler: Arc<RwLock<crate::events::DialogHandler>>,
   /// Manager for lazy engine injection.
   injected_script: Arc<InjectedScriptManager>,
@@ -89,8 +88,8 @@ impl BidiPage {
       routes: Arc::new(RwLock::new(Vec::new())),
       intercept_ids: Arc::new(RwLock::new(Vec::new())),
       closed: Arc::new(AtomicBool::new(false)),
-      preload_scripts: Arc::new(RwLock::new(FxHashMap::default())),
-      exposed_fns: Arc::new(RwLock::new(FxHashMap::default())),
+      preload_scripts: Arc::new(RwLock::new(crate::hash::HashMap::default())),
+      exposed_fns: Arc::new(RwLock::new(crate::hash::HashMap::default())),
       dialog_handler: Arc::new(RwLock::new(crate::events::default_dialog_handler())),
       injected_script: Arc::new(InjectedScriptManager::new()),
     }
@@ -1628,7 +1627,7 @@ impl BidiPage {
               .and_then(|r| r.get("method"))
               .and_then(|v| v.as_str())
               .unwrap_or("GET");
-            let headers: FxHashMap<String, String> = req_obj
+            let headers: crate::hash::HashMap<String, String> = req_obj
               .and_then(|r| r.get("headers"))
               .map(parse_bidi_headers)
               .unwrap_or_default();
@@ -2073,16 +2072,16 @@ fn collect_frames(ctx: &serde_json::Value, parent_id: Option<&str>, frames: &mut
 /// `FerriError::Unsupported` per Rule 4 instead of dangling indefinitely.
 struct BidiNetworkTracker {
   session: Arc<super::session::BidiSession>,
-  requests: tokio::sync::Mutex<FxHashMap<String, NetworkRequest>>,
-  responses: tokio::sync::Mutex<FxHashMap<String, Response>>,
+  requests: tokio::sync::Mutex<crate::hash::HashMap<String, NetworkRequest>>,
+  responses: tokio::sync::Mutex<crate::hash::HashMap<String, Response>>,
 }
 
 impl BidiNetworkTracker {
   fn new(session: Arc<super::session::BidiSession>) -> Self {
     Self {
       session,
-      requests: tokio::sync::Mutex::new(FxHashMap::default()),
-      responses: tokio::sync::Mutex::new(FxHashMap::default()),
+      requests: tokio::sync::Mutex::new(crate::hash::HashMap::default()),
+      responses: tokio::sync::Mutex::new(crate::hash::HashMap::default()),
     }
   }
 
@@ -2342,8 +2341,8 @@ fn parse_bidi_security_details(resp: &serde_json::Value) -> Option<SecurityDetai
     })
 }
 
-/// Parse BiDi-format headers `[{name, value: {type, value}}]` into a `FxHashMap`.
-fn parse_bidi_headers(headers_val: &serde_json::Value) -> FxHashMap<String, String> {
+/// Parse BiDi-format headers `[{name, value: {type, value}}]` into header map.
+fn parse_bidi_headers(headers_val: &serde_json::Value) -> crate::hash::HashMap<String, String> {
   headers_val
     .as_array()
     .map(|arr| {

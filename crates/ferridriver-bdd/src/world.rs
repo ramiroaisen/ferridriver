@@ -3,7 +3,7 @@
 use std::any::{Any, TypeId};
 use std::sync::Arc;
 
-use rustc_hash::FxHashMap;
+use ferridriver::hash::HashMap;
 
 use ferridriver::Page;
 use ferridriver::context::ContextRef;
@@ -15,8 +15,8 @@ use ferridriver::context::ContextRef;
 /// via delegate methods; NAPI step handlers access the full `TestFixtures` directly.
 pub struct BrowserWorld {
   fixtures: ferridriver_test::model::TestFixtures,
-  vars: FxHashMap<String, String>,
-  state: FxHashMap<TypeId, Box<dyn Any + Send + Sync>>,
+  vars: HashMap<String, String>,
+  state: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
   registry: Option<Arc<crate::registry::StepRegistry>>,
   feature_dir: Option<std::path::PathBuf>,
 }
@@ -26,8 +26,8 @@ impl BrowserWorld {
   pub fn new(fixtures: ferridriver_test::model::TestFixtures) -> Self {
     Self {
       fixtures,
-      vars: FxHashMap::default(),
-      state: FxHashMap::default(),
+      vars: HashMap::default(),
+      state: HashMap::default(),
       registry: None,
       feature_dir: None,
     }
@@ -76,11 +76,11 @@ impl BrowserWorld {
 
   // ── Scenario variables ──
 
-  pub fn vars(&self) -> &FxHashMap<String, String> {
+  pub fn vars(&self) -> &HashMap<String, String> {
     &self.vars
   }
 
-  pub fn vars_mut(&mut self) -> &mut FxHashMap<String, String> {
+  pub fn vars_mut(&mut self) -> &mut HashMap<String, String> {
     &mut self.vars
   }
 

@@ -2,19 +2,19 @@
 
 use std::time::Duration;
 
-use rustc_hash::FxHashMap;
+use ferridriver::hash::HashMap;
 
 use crate::reporter::{Reporter, ReporterEvent};
 
 pub struct UsageReporter {
   /// Map from step expression -> (call_count, total_duration).
-  stats: FxHashMap<String, (usize, Duration)>,
+  stats: HashMap<String, (usize, Duration)>,
 }
 
 impl UsageReporter {
   pub fn new() -> Self {
     Self {
-      stats: FxHashMap::default(),
+      stats: HashMap::default(),
     }
   }
 

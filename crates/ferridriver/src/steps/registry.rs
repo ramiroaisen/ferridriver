@@ -75,7 +75,7 @@ impl StepRegistry {
     page: &Arc<Page>,
     body: &str,
     data_table: Option<&[Vec<String>]>,
-    vars: &mut rustc_hash::FxHashMap<String, String>,
+    vars: &mut crate::hash::HashMap<String, String>,
   ) -> crate::Result<Option<serde_json::Value>> {
     for step in &self.steps {
       if let Some(caps) = step.pattern().captures(body) {

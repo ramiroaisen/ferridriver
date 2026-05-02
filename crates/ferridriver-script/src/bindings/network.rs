@@ -542,7 +542,7 @@ impl RouteJs {
   /// Headers as a plain JS object (`Record<string, string>`).
   #[qjs(rename = "headers")]
   pub fn headers<'js>(&self, ctx: Ctx<'js>) -> rquickjs::Result<Value<'js>> {
-    let map: rustc_hash::FxHashMap<String, String> = self
+    let map: ferridriver::hash::HashMap<String, String> = self
       .inner
       .lock()
       .ok()

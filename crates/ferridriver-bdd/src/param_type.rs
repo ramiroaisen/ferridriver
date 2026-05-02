@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use rustc_hash::FxHashMap;
+use ferridriver::hash::HashMap;
 
 use crate::step::StepParam;
 
@@ -18,13 +18,13 @@ pub struct CustomParamType {
 
 /// Registry of custom parameter types.
 pub struct ParameterTypeRegistry {
-  types: FxHashMap<String, CustomParamType>,
+  types: HashMap<String, CustomParamType>,
 }
 
 impl ParameterTypeRegistry {
   pub fn new() -> Self {
     Self {
-      types: FxHashMap::default(),
+      types: HashMap::default(),
     }
   }
 

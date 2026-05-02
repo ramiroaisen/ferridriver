@@ -7,10 +7,10 @@
 
 use std::ptr;
 
+use ferridriver::hash::HashMap;
 use ferridriver::protocol::{ErrorValue, RegExpValue, SerializedValue, SpecialValue, TypedArrayKind};
 use napi::bindgen_prelude::*;
 use napi::{Env, JsValue, sys};
-use rustc_hash::FxHashMap;
 
 /// Return-value wrapper for the NAPI evaluate / jsonValue surface. Holds
 /// the raw [`SerializedValue`] produced by core; the napi-rs return-path
@@ -30,7 +30,7 @@ impl TypeName for Evaluated {
 impl ToNapiValue for Evaluated {
   unsafe fn to_napi_value(raw_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let env = Env::from_raw(raw_env);
-    let mut refs: FxHashMap<u32, sys::napi_value> = FxHashMap::default();
+    let mut refs: HashMap<u32, sys::napi_value> = HashMap::default();
     rehydrate(&env, &val.0, &mut refs)
   }
 }
@@ -45,11 +45,7 @@ pub fn extract_fn_source(value: Unknown<'_>) -> Result<(String, Option<bool>)> {
   Ok((s, Some(is_fn)))
 }
 
-fn rehydrate(
-  env: &Env,
-  value: &SerializedValue,
-  refs: &mut FxHashMap<u32, sys::napi_value>,
-) -> Result<sys::napi_value> {
+fn rehydrate(env: &Env, value: &SerializedValue, refs: &mut HashMap<u32, sys::napi_value>) -> Result<sys::napi_value> {
   match value {
     SerializedValue::Bool(b) => {
       let mut out = ptr::null_mut();

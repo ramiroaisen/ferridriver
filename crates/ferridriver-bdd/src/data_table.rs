@@ -2,7 +2,7 @@
 
 use std::ops::{Deref, DerefMut};
 
-use rustc_hash::FxHashMap;
+use ferridriver::hash::HashMap;
 
 /// A Gherkin data table (rows of string cells) with helper methods.
 #[derive(Debug, Clone)]
@@ -38,7 +38,7 @@ impl DataTable {
   }
 
   /// Convert to array of header→value maps (one per data row).
-  pub fn hashes(&self) -> Vec<FxHashMap<&str, &str>> {
+  pub fn hashes(&self) -> Vec<HashMap<&str, &str>> {
     let Some(headers) = self.headers() else {
       return Vec::new();
     };
@@ -56,7 +56,7 @@ impl DataTable {
   }
 
   /// Convert two-column table to key→value map (first col = key, second col = value).
-  pub fn rows_hash(&self) -> FxHashMap<&str, &str> {
+  pub fn rows_hash(&self) -> HashMap<&str, &str> {
     self
       .rows
       .iter()

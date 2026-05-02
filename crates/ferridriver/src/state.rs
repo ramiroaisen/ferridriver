@@ -12,7 +12,6 @@ use std::sync::Arc;
 
 use crate::backend::{AnyBrowser, AnyPage, BackendKind};
 use crate::context::BrowserContext;
-use rustc_hash::FxHashMap as HashMap;
 
 /// Default viewport dimensions -- consistent across all backends.
 pub const DEFAULT_VIEWPORT_WIDTH: i64 = 1280;
@@ -78,7 +77,7 @@ impl SessionKey {
 /// A single Chrome process and its isolated contexts.
 struct BrowserInstance {
   browser: AnyBrowser,
-  contexts: HashMap<String, BrowserContext>,
+  contexts: crate::hash::HashMap<String, BrowserContext>,
 }
 
 #[derive(Clone)]
@@ -133,7 +132,7 @@ pub type InstanceResolverFn = Box<dyn Fn(&str) -> Option<ConnectMode> + Send + S
 
 /// All browser state -- manages multiple Chrome instances, each with contexts and pages.
 pub struct BrowserState {
-  instances: HashMap<String, BrowserInstance>,
+  instances: crate::hash::HashMap<String, BrowserInstance>,
   chromium_path: String,
   connect_mode: ConnectMode,
   backend_kind: BackendKind,
@@ -200,7 +199,7 @@ impl BrowserState {
       }
     };
     Self {
-      instances: HashMap::default(),
+      instances: crate::hash::HashMap::default(),
       chromium_path,
       connect_mode,
       backend_kind: opts.backend,
@@ -322,7 +321,7 @@ impl BrowserState {
 
     let mut inst = BrowserInstance {
       browser,
-      contexts: HashMap::default(),
+      contexts: crate::hash::HashMap::default(),
     };
 
     // Adopt existing pages into the "default" context of this instance.
@@ -378,7 +377,7 @@ impl BrowserState {
     let browser = AnyBrowser::CdpRaw(Box::pin(CdpBrowser::<WsTransport>::connect(&ws_url)).await?);
     let mut inst = BrowserInstance {
       browser,
-      contexts: HashMap::default(),
+      contexts: crate::hash::HashMap::default(),
     };
 
     // Skip viewport override for existing pages — connect_to_url attaches to a
@@ -700,7 +699,7 @@ impl BrowserState {
   }
 
   /// Store a new ref map for the given context (atomic, no `&mut self` needed).
-  pub fn set_ref_map(&self, context: &str, ref_map: HashMap<String, i64>) {
+  pub fn set_ref_map(&self, context: &str, ref_map: crate::hash::HashMap<String, i64>) {
     let key = SessionKey::parse(context);
     if let Some(inst) = self.instances.get(&*key.instance) {
       if let Some(ctx) = inst.contexts.get(&*key.context) {
@@ -710,7 +709,7 @@ impl BrowserState {
   }
 
   #[must_use]
-  pub fn ref_map(&self, context: &str) -> HashMap<String, i64> {
+  pub fn ref_map(&self, context: &str) -> crate::hash::HashMap<String, i64> {
     let key = SessionKey::parse(context);
     self
       .instances
@@ -722,7 +721,10 @@ impl BrowserState {
 
   /// Get an `Arc` handle to a context's ref map `ArcSwap` for lock-free access.
   #[must_use]
-  pub fn ref_map_handle(&self, context: &str) -> Option<std::sync::Arc<arc_swap::ArcSwap<HashMap<String, i64>>>> {
+  pub fn ref_map_handle(
+    &self,
+    context: &str,
+  ) -> Option<std::sync::Arc<arc_swap::ArcSwap<crate::hash::HashMap<String, i64>>>> {
     let key = SessionKey::parse(context);
     self
       .instances

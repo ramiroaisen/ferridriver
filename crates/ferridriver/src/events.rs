@@ -140,7 +140,7 @@ fn event_name_matches(name: &str, event: &PageEvent) -> bool {
 pub struct EventEmitter {
   tx: broadcast::Sender<PageEvent>,
   /// Active listeners with their abort handles.
-  listeners: Arc<std::sync::Mutex<rustc_hash::FxHashMap<u64, tokio::task::AbortHandle>>>,
+  listeners: Arc<std::sync::Mutex<crate::hash::HashMap<u64, tokio::task::AbortHandle>>>,
   next_listener_id: Arc<std::sync::atomic::AtomicU64>,
   /// Stored runtime handle so `on()` works from non-async contexts (NAPI).
   runtime_handle: Arc<std::sync::Mutex<Option<tokio::runtime::Handle>>>,
@@ -154,7 +154,7 @@ impl EventEmitter {
     let handle = tokio::runtime::Handle::try_current().ok();
     Self {
       tx,
-      listeners: Arc::new(std::sync::Mutex::new(rustc_hash::FxHashMap::default())),
+      listeners: Arc::new(std::sync::Mutex::new(crate::hash::HashMap::default())),
       next_listener_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),
       runtime_handle: Arc::new(std::sync::Mutex::new(handle)),
     }

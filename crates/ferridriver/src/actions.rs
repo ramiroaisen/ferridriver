@@ -9,7 +9,6 @@
 
 use crate::backend::{AnyElement, AnyPage};
 use crate::selectors;
-use rustc_hash::FxHashMap;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -73,7 +72,7 @@ pub struct FoundElement {
   pub index: usize,
   pub tag: String,
   pub text: Option<String>,
-  pub attrs: FxHashMap<String, String>,
+  pub attrs: crate::hash::HashMap<String, String>,
   pub children_count: usize,
 }
 
@@ -431,7 +430,7 @@ pub async fn find_elements(page: &AnyPage, opts: &FindElementsOptions) -> crate:
         index: m.index,
         tag: m.tag,
         text: if opts.include_text { Some(m.text) } else { None },
-        attrs: FxHashMap::default(),
+        attrs: crate::hash::HashMap::default(),
         children_count: 0,
       })
       .collect();
@@ -461,7 +460,7 @@ pub async fn find_elements(page: &AnyPage, opts: &FindElementsOptions) -> crate:
       arr
         .iter()
         .map(|el| {
-          let mut attrs = FxHashMap::default();
+          let mut attrs = crate::hash::HashMap::default();
           if let Some(obj) = el["attrs"].as_object() {
             for (k, v) in obj {
               attrs.insert(k.clone(), v.as_str().unwrap_or("").to_string());

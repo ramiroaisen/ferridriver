@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use rustc_hash::FxHashMap;
+use ferridriver::hash::{HashMap, HashSet};
 use tokio::sync::mpsc;
 
 use crate::config::{CliOverrides, ProjectConfig, TestConfig};
@@ -118,9 +118,9 @@ impl TestRunner {
     );
 
     let mut exit_code = 0i32;
-    let mut failed_projects: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
+    let mut failed_projects: HashSet<String> = HashSet::default();
     // Track completed projects for teardown scheduling.
-    let mut completed_projects: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
+    let mut completed_projects: HashSet<String> = HashSet::default();
     // Collect teardown projects to run after all dependents finish.
     let mut pending_teardowns: Vec<usize> = Vec::new();
 
@@ -381,7 +381,7 @@ impl TestRunner {
 
     // ── Global setup ──
     if !self.config.global_setup_fns.is_empty() {
-      let global_pool = FixturePool::new(FxHashMap::default(), FixtureScope::Global);
+      let global_pool = FixturePool::new(HashMap::default(), FixtureScope::Global);
       for setup_fn in &self.config.global_setup_fns {
         if let Err(e) = setup_fn(global_pool.clone()).await {
           tracing::error!(target: "ferridriver::runner", "global setup failed: {e}");
@@ -483,7 +483,7 @@ impl TestRunner {
       let worker = Worker::new(worker_id, Arc::clone(&self.config), event_bus.clone());
       let rx = dispatcher.receiver();
       let tx = result_tx.clone();
-      let custom_pool = FixturePool::new(FxHashMap::default(), FixtureScope::Worker);
+      let custom_pool = FixturePool::new(HashMap::default(), FixtureScope::Worker);
       let shared = self.shared_browser.clone();
       let opts = launch_opts.clone();
 
@@ -507,7 +507,7 @@ impl TestRunner {
     drop(result_tx);
 
     // ── Collect results with retry re-dispatch ──
-    let mut attempt_history: FxHashMap<String, Vec<TestStatus>> = FxHashMap::default();
+    let mut attempt_history: HashMap<String, Vec<TestStatus>> = HashMap::default();
     let mut final_count = 0usize;
     let mut failure_count = 0usize;
     let max_failures = if self.config.fail_fast {
@@ -568,7 +568,7 @@ impl TestRunner {
 
     // ── Global teardown (always runs, even if tests failed) ──
     if !self.config.global_teardown_fns.is_empty() {
-      let global_pool = FixturePool::new(FxHashMap::default(), FixtureScope::Global);
+      let global_pool = FixturePool::new(HashMap::default(), FixtureScope::Global);
       for teardown_fn in &self.config.global_teardown_fns {
         if let Err(e) = teardown_fn(global_pool.clone()).await {
           tracing::error!(target: "ferridriver::runner", "global teardown error: {e}");
@@ -892,7 +892,7 @@ fn build_plan_for_changes(
 
   // Filter plan to changed files if applicable.
   if !run_all && !changed_paths.is_empty() {
-    let changed_names: rustc_hash::FxHashSet<&str> = changed_paths
+    let changed_names: HashSet<&str> = changed_paths
       .iter()
       .filter_map(|p| p.file_name().and_then(|n| n.to_str()))
       .collect();
@@ -912,7 +912,7 @@ fn build_plan_for_changes(
 ///
 /// Uses Kahn's algorithm. Returns `Err` if there's a cycle or a missing dependency.
 fn topo_sort_projects(projects: &[ProjectConfig]) -> Result<Vec<usize>, String> {
-  let name_to_idx: FxHashMap<&str, usize> = projects.iter().enumerate().map(|(i, p)| (p.name.as_str(), i)).collect();
+  let name_to_idx: HashMap<&str, usize> = projects.iter().enumerate().map(|(i, p)| (p.name.as_str(), i)).collect();
 
   // Build adjacency list + in-degree.
   let n = projects.len();

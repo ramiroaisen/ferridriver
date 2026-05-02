@@ -24,7 +24,6 @@ use crate::network::{
   self, BodyFn, HeaderEntry, Headers, RawHeadersFn, RemoteAddr, RequestInit, RequestSizes, RequestTiming, Response,
   ResponseInit, SecurityDetails, WebSocket, WebSocketPayload,
 };
-use rustc_hash::FxHashMap;
 use std::time::Duration;
 use transport::CdpTransport;
 
@@ -59,7 +58,7 @@ pub struct CdpBrowser<T: CdpTransport> {
   transport: Arc<T>,
   child: Arc<tokio::sync::Mutex<Option<super::process::ChildGroup>>>,
   /// Track targetId -> sessionId for already-attached targets.
-  attached_targets: std::sync::Mutex<FxHashMap<String, Option<String>>>,
+  attached_targets: std::sync::Mutex<crate::hash::HashMap<String, Option<String>>>,
   /// Product version string captured from CDP `Browser.getVersion().product`
   /// at handshake time. Matches what Playwright surfaces via `browser.version()`
   /// (its initializer stores the same value and returns it synchronously).
@@ -224,7 +223,7 @@ impl<T: CdpWrap> CdpBrowser<T> {
     Ok(Self {
       transport,
       child: Arc::new(tokio::sync::Mutex::new(child)),
-      attached_targets: std::sync::Mutex::new(FxHashMap::default()),
+      attached_targets: std::sync::Mutex::new(crate::hash::HashMap::default()),
       version,
       user_data_dir: user_data_dir.map(Arc::new),
     })
@@ -302,9 +301,9 @@ impl<T: CdpWrap> CdpBrowser<T> {
         target_id: Arc::from(target_id),
         browser_context_id: None,
         events: crate::events::EventEmitter::new(),
-        frame_contexts: Arc::new(tokio::sync::RwLock::new(FxHashMap::default())),
+        frame_contexts: Arc::new(tokio::sync::RwLock::new(crate::hash::HashMap::default())),
         dialog_handler: Arc::new(tokio::sync::RwLock::new(crate::events::default_dialog_handler())),
-        exposed_fns: Arc::new(tokio::sync::RwLock::new(FxHashMap::default())),
+        exposed_fns: Arc::new(tokio::sync::RwLock::new(crate::hash::HashMap::default())),
         binding_initialized: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         routes: Arc::new(tokio::sync::RwLock::new(Vec::new())),
@@ -421,9 +420,9 @@ impl<T: CdpWrap> CdpBrowser<T> {
       target_id: Arc::from(target_id),
       browser_context_id: browser_context_id.map(Arc::from),
       events: crate::events::EventEmitter::new(),
-      frame_contexts: Arc::new(tokio::sync::RwLock::new(FxHashMap::default())),
+      frame_contexts: Arc::new(tokio::sync::RwLock::new(crate::hash::HashMap::default())),
       dialog_handler: Arc::new(tokio::sync::RwLock::new(crate::events::default_dialog_handler())),
-      exposed_fns: Arc::new(tokio::sync::RwLock::new(FxHashMap::default())),
+      exposed_fns: Arc::new(tokio::sync::RwLock::new(crate::hash::HashMap::default())),
       binding_initialized: Arc::new(std::sync::atomic::AtomicBool::new(false)),
       closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
       routes: Arc::new(tokio::sync::RwLock::new(Vec::new())),
@@ -549,7 +548,7 @@ impl CdpBrowser<ws::WsTransport> {
       .send_command(None, "Target.getTargets", super::empty_params())
       .await?;
 
-    let mut attached = FxHashMap::default();
+    let mut attached = crate::hash::HashMap::default();
     let mut found_page = false;
 
     if let Some(targets) = result.get("targetInfos").and_then(|t| t.as_array()) {
@@ -691,11 +690,11 @@ pub struct CdpPage<T: CdpTransport> {
   /// Event emitter for page events (console, dialog, network, frame lifecycle).
   pub events: crate::events::EventEmitter,
   /// Frame ID -> execution context ID mapping for frame-scoped evaluation.
-  frame_contexts: Arc<tokio::sync::RwLock<FxHashMap<String, i64>>>,
+  frame_contexts: Arc<tokio::sync::RwLock<crate::hash::HashMap<String, i64>>>,
   /// Configurable dialog handler. Called when a JS dialog appears.
   pub dialog_handler: Arc<tokio::sync::RwLock<crate::events::DialogHandler>>,
   /// Registered exposed function callbacks.
-  pub exposed_fns: Arc<tokio::sync::RwLock<FxHashMap<String, crate::events::ExposedFn>>>,
+  pub exposed_fns: Arc<tokio::sync::RwLock<crate::hash::HashMap<String, crate::events::ExposedFn>>>,
   /// Whether the binding channel has been initialized.
   binding_initialized: Arc<std::sync::atomic::AtomicBool>,
   /// Whether this page has been closed.
@@ -2774,7 +2773,7 @@ impl<T: CdpWrap> CdpPage<T> {
   fn spawn_frame_context_tracker(
     transport: Arc<T>,
     session_id: Option<Arc<str>>,
-    frame_contexts: Arc<tokio::sync::RwLock<FxHashMap<String, i64>>>,
+    frame_contexts: Arc<tokio::sync::RwLock<crate::hash::HashMap<String, i64>>>,
     emitter: crate::events::EventEmitter,
     injected_script: Arc<InjectedScriptManager>,
   ) {
@@ -3156,7 +3155,7 @@ bc.reject=function(seq,err){var c=bc.cbs[seq];if(c){delete bc.cbs[seq];c.j(new E
           .unwrap_or("GET");
         let resource_type = params.get("resourceType").and_then(|v| v.as_str()).unwrap_or("");
         let post_data = req_obj.and_then(|r| r.get("postData")).and_then(|v| v.as_str());
-        let headers: FxHashMap<String, String> = req_obj
+        let headers: crate::hash::HashMap<String, String> = req_obj
           .and_then(|r| r.get("headers"))
           .and_then(|h| h.as_object())
           .map(|obj| {
@@ -3675,12 +3674,12 @@ impl<T: CdpTransport> CdpElement<T> {
 struct NetworkTracker<T: CdpTransport> {
   transport: Arc<T>,
   session_id: Option<Arc<str>>,
-  requests: tokio::sync::Mutex<FxHashMap<String, network::Request>>,
-  responses: tokio::sync::Mutex<FxHashMap<String, Response>>,
-  websockets: tokio::sync::Mutex<FxHashMap<String, WebSocket>>,
+  requests: tokio::sync::Mutex<crate::hash::HashMap<String, network::Request>>,
+  responses: tokio::sync::Mutex<crate::hash::HashMap<String, Response>>,
+  websockets: tokio::sync::Mutex<crate::hash::HashMap<String, WebSocket>>,
   // Buffered extra-info events that may arrive before the main events.
-  pending_request_extra: tokio::sync::Mutex<FxHashMap<String, Vec<HeaderEntry>>>,
-  pending_response_extra: tokio::sync::Mutex<FxHashMap<String, Vec<HeaderEntry>>>,
+  pending_request_extra: tokio::sync::Mutex<crate::hash::HashMap<String, Vec<HeaderEntry>>>,
+  pending_response_extra: tokio::sync::Mutex<crate::hash::HashMap<String, Vec<HeaderEntry>>>,
 }
 
 impl<T: CdpTransport + 'static> NetworkTracker<T> {
@@ -3688,11 +3687,11 @@ impl<T: CdpTransport + 'static> NetworkTracker<T> {
     Self {
       transport,
       session_id,
-      requests: tokio::sync::Mutex::new(FxHashMap::default()),
-      responses: tokio::sync::Mutex::new(FxHashMap::default()),
-      websockets: tokio::sync::Mutex::new(FxHashMap::default()),
-      pending_request_extra: tokio::sync::Mutex::new(FxHashMap::default()),
-      pending_response_extra: tokio::sync::Mutex::new(FxHashMap::default()),
+      requests: tokio::sync::Mutex::new(crate::hash::HashMap::default()),
+      responses: tokio::sync::Mutex::new(crate::hash::HashMap::default()),
+      websockets: tokio::sync::Mutex::new(crate::hash::HashMap::default()),
+      pending_request_extra: tokio::sync::Mutex::new(crate::hash::HashMap::default()),
+      pending_response_extra: tokio::sync::Mutex::new(crate::hash::HashMap::default()),
     }
   }
 

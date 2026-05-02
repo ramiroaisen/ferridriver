@@ -262,24 +262,24 @@ impl TestPlanBuilder {
   /// Tests without a suite go into a default parallel suite.
   /// Hooks are attached to their matching suite by `suite_id`.
   pub fn build(self) -> TestPlan {
-    use rustc_hash::FxHashMap;
+    use ferridriver::hash::HashMap;
 
     // Index suite metadata by ID.
-    let suite_meta: FxHashMap<String, (String, String, SuiteMode)> = self
+    let suite_meta: HashMap<String, (String, String, SuiteMode)> = self
       .suites
       .into_iter()
       .map(|s| (s.id, (s.name, s.file, s.mode)))
       .collect();
 
     // Group tests by suite key.
-    let mut grouped: FxHashMap<String, Vec<TestCase>> = FxHashMap::default();
+    let mut grouped: HashMap<String, Vec<TestCase>> = HashMap::default();
     for tc in self.tests {
       let key = tc.id.suite.clone().unwrap_or_default();
       grouped.entry(key).or_default().push(tc);
     }
 
     // Build hooks per suite.
-    let mut hook_map: FxHashMap<String, Hooks> = FxHashMap::default();
+    let mut hook_map: HashMap<String, Hooks> = HashMap::default();
     for h in self.hooks {
       let hooks = hook_map.entry(h.suite_id).or_default();
       match h.kind {

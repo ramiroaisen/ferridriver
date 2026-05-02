@@ -13,7 +13,6 @@ use crate::network::Request;
 use crate::page::Page;
 use crate::state::SessionKey;
 use arc_swap::ArcSwap;
-use rustc_hash::FxHashMap as HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -42,7 +41,7 @@ pub struct BrowserContext {
   /// Active page index.
   pub active_page_idx: usize,
   /// Element ref map for accessibility snapshots (wait-free reads via `ArcSwap`).
-  pub ref_map: Arc<ArcSwap<HashMap<String, i64>>>,
+  pub ref_map: Arc<ArcSwap<crate::hash::HashMap<String, i64>>>,
   /// Console messages collected from page events.
   pub console_log: Arc<RwLock<Vec<ConsoleMsg>>>,
   /// Network requests collected from page events. Live `Request`
@@ -64,7 +63,7 @@ impl BrowserContext {
     Self {
       pages: Vec::new(),
       active_page_idx: 0,
-      ref_map: Arc::new(ArcSwap::from_pointee(HashMap::default())),
+      ref_map: Arc::new(ArcSwap::from_pointee(crate::hash::HashMap::default())),
       console_log: Arc::new(RwLock::new(Vec::new())),
       network_log: Arc::new(RwLock::new(Vec::new())),
       dialog_log: Arc::new(RwLock::new(Vec::new())),

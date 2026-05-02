@@ -3,7 +3,6 @@
 use crate::page::Page;
 use async_trait::async_trait;
 use regex::Regex;
-use rustc_hash::FxHashMap as HashMap;
 use std::sync::Arc;
 
 #[macro_use]
@@ -35,7 +34,7 @@ pub trait StepDef: Send + Sync {
     page: &Arc<Page>,
     caps: &regex::Captures<'_>,
     data_table: Option<&[Vec<String>]>,
-    vars: &mut HashMap<String, String>,
+    vars: &mut crate::hash::HashMap<String, String>,
   ) -> crate::Result<Option<serde_json::Value>>;
 }
 

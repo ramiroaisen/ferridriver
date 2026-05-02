@@ -6,7 +6,6 @@
 //! - Compatible with dev-browser's `snapshotForAI()` API shape
 
 use crate::backend::{AnyPage, AxNodeData};
-use rustc_hash::FxHashMap as HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -124,7 +123,7 @@ pub struct SnapshotForAI {
   /// call with the same track key. None on first call or when nothing changed.
   pub incremental: Option<String>,
   /// Map of ref labels (e.g. "e5") to backend DOM node IDs for element resolution.
-  pub ref_map: HashMap<String, i64>,
+  pub ref_map: crate::hash::HashMap<String, i64>,
 }
 
 /// Per-node fingerprint for incremental tracking.
@@ -147,7 +146,7 @@ fn node_fingerprint(node: &AxNodeData) -> u64 {
 #[derive(Debug, Clone, Default)]
 pub struct SnapshotTracker {
   /// `track_key` -> Vec of (`node_id`, fingerprint) from previous call.
-  tracks: HashMap<String, Vec<(String, u64)>>,
+  tracks: crate::hash::HashMap<String, Vec<(String, u64)>>,
 }
 
 impl SnapshotTracker {
@@ -169,7 +168,8 @@ impl SnapshotTracker {
 
     let changed = if let Some(prev_fingerprints) = prev {
       // Build a map of previous node_id -> fingerprint
-      let prev_map: HashMap<&str, u64> = prev_fingerprints.iter().map(|(id, fp)| (id.as_str(), *fp)).collect();
+      let prev_map: crate::hash::HashMap<&str, u64> =
+        prev_fingerprints.iter().map(|(id, fp)| (id.as_str(), *fp)).collect();
 
       let changed_ids: std::collections::HashSet<String> = current
         .iter()
@@ -203,16 +203,16 @@ impl SnapshotTracker {
 
 /// Build a compact snapshot. Returns (text, `ref_map`).
 #[must_use]
-pub fn build_snapshot(nodes: &[AxNodeData]) -> (String, HashMap<String, i64>) {
+pub fn build_snapshot(nodes: &[AxNodeData]) -> (String, crate::hash::HashMap<String, i64>) {
   build_snapshot_filtered(nodes, None)
 }
 
 /// Mutable context passed through snapshot tree traversal to reduce argument count.
 struct SnapshotCtx<'a> {
   nodes: &'a [AxNodeData],
-  children_map: HashMap<&'a str, Vec<usize>>,
+  children_map: crate::hash::HashMap<&'a str, Vec<usize>>,
   output: String,
-  ref_map: HashMap<String, i64>,
+  ref_map: crate::hash::HashMap<String, i64>,
   truncated: bool,
   filter_ids: Option<&'a std::collections::HashSet<String>>,
   relevant_nodes: Option<std::collections::HashSet<&'a str>>,
@@ -236,8 +236,8 @@ fn get_desc(node: &AxNodeData) -> &str {
 fn build_snapshot_filtered(
   nodes: &[AxNodeData],
   filter_ids: Option<&std::collections::HashSet<String>>,
-) -> (String, HashMap<String, i64>) {
-  let mut children_map: HashMap<&str, Vec<usize>> = HashMap::default();
+) -> (String, crate::hash::HashMap<String, i64>) {
+  let mut children_map: crate::hash::HashMap<&str, Vec<usize>> = crate::hash::HashMap::default();
   for (i, node) in nodes.iter().enumerate() {
     if let Some(pid) = &node.parent_id {
       children_map.entry(pid.as_str()).or_default().push(i);
@@ -249,7 +249,7 @@ fn build_snapshot_filtered(
   let relevant_nodes: Option<std::collections::HashSet<&str>> = filter_ids.map(|changed| {
     let mut relevant = std::collections::HashSet::new();
     // Build parent lookup
-    let parent_map: HashMap<&str, &str> = nodes
+    let parent_map: crate::hash::HashMap<&str, &str> = nodes
       .iter()
       .filter_map(|n| n.parent_id.as_ref().map(|pid| (n.node_id.as_str(), pid.as_str())))
       .collect();
@@ -280,7 +280,7 @@ fn build_snapshot_filtered(
     nodes,
     children_map,
     output: String::with_capacity(nodes.len() * 64),
-    ref_map: HashMap::default(),
+    ref_map: crate::hash::HashMap::default(),
     truncated: false,
     filter_ids,
     relevant_nodes,

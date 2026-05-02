@@ -233,7 +233,7 @@ async fn assert_request_count(world: &mut BrowserWorld, expected: i64, pattern: 
 struct LastFetchResponse {
   status: i32,
   body: String,
-  headers: rustc_hash::FxHashMap<String, String>,
+  headers: ferridriver::hash::HashMap<String, String>,
 }
 
 fn last_response(world: &BrowserWorld) -> Result<LastFetchResponse, StepError> {
@@ -264,7 +264,7 @@ async fn fetch_url(world: &mut BrowserWorld, url: String) {
   let parsed: serde_json::Value =
     serde_json::from_str(&result).map_err(|e| StepError::from(format!("parse fetch result: {e}")))?;
 
-  let headers: rustc_hash::FxHashMap<String, String> = parsed
+  let headers: ferridriver::hash::HashMap<String, String> = parsed
     .get("headers")
     .and_then(|h| h.as_object())
     .map(|obj| {

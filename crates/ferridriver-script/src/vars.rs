@@ -6,7 +6,7 @@
 
 use std::sync::RwLock;
 
-use rustc_hash::FxHashMap;
+use ferridriver::hash::HashMap;
 
 /// Session-level key/value store.
 ///
@@ -20,13 +20,13 @@ pub trait VarsStore: Send + Sync {
   fn keys(&self) -> Vec<String>;
 }
 
-/// Simple in-memory `VarsStore` backed by an `RwLock<FxHashMap>`.
+/// Simple in-memory `VarsStore` backed by an `RwLock<HashMap>`.
 ///
 /// Cheap to construct and safe to share across script runs; the MCP server
 /// holds one of these per session so `vars` survives across `run_script` calls.
 #[derive(Default)]
 pub struct InMemoryVars {
-  inner: RwLock<FxHashMap<String, String>>,
+  inner: RwLock<HashMap<String, String>>,
 }
 
 impl InMemoryVars {

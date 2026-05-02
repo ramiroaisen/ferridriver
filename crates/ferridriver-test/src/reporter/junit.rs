@@ -68,7 +68,7 @@ impl Reporter for JUnitReporter {
     .ok();
 
     // Group by suite (BDD feature name) with fallback to file (E2E).
-    let mut by_suite: rustc_hash::FxHashMap<String, Vec<&TestOutcome>> = rustc_hash::FxHashMap::default();
+    let mut by_suite: ferridriver::hash::HashMap<String, Vec<&TestOutcome>> = ferridriver::hash::HashMap::default();
     for result in &self.results {
       let suite = result
         .test_id

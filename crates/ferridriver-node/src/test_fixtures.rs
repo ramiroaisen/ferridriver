@@ -46,7 +46,7 @@ impl TestFixtures {
   /// use the same code path.
   pub(crate) fn from_resolved(inner: ferridriver_test::model::TestFixtures) -> Self {
     let pool = ferridriver_test::fixture::FixturePool::new(
-      rustc_hash::FxHashMap::default(),
+      ferridriver::hash::HashMap::default(),
       ferridriver_test::fixture::FixtureScope::Test,
     );
     pool.inject("browser", inner.browser);

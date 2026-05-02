@@ -11,7 +11,6 @@
 //! Parent: std blocking sockets, background reader thread, oneshot channels.
 //!         `std::process::Command` spawn (NOT tokio).
 
-use rustc_hash::FxHashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -292,7 +291,7 @@ fn decode_network_response_event(payload: &[u8]) -> Option<NetworkEvent> {
       obj
         .iter()
         .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
-        .collect::<FxHashMap<String, String>>()
+        .collect::<crate::hash::HashMap<String, String>>()
     })
     .unwrap_or_default();
   Some(NetworkEvent::Response {
@@ -325,7 +324,7 @@ pub enum NetworkEvent {
     status: i64,
     status_text: String,
     url: String,
-    headers: FxHashMap<String, String>,
+    headers: crate::hash::HashMap<String, String>,
   },
   Failure {
     id: String,
@@ -345,7 +344,7 @@ struct ReaderCtx {
 
 pub struct IpcClient {
   writer: StdMutex<std::os::unix::net::UnixStream>,
-  pending: Arc<StdMutex<FxHashMap<u64, oneshot::Sender<IpcResponse>>>>,
+  pending: Arc<StdMutex<crate::hash::HashMap<u64, oneshot::Sender<IpcResponse>>>>,
   next_id: AtomicU64,
   /// Console messages pushed by the host via `REP_CONSOLE_EVENT`.
   pub console_log: Arc<StdMutex<Vec<(String, String)>>>,
@@ -451,8 +450,8 @@ impl IpcClient {
     let read_sock = parent_sock.try_clone().map_err(|e| format!("clone: {e}"))?;
     let write_sock = parent_sock;
 
-    let pending: Arc<StdMutex<FxHashMap<u64, oneshot::Sender<IpcResponse>>>> =
-      Arc::new(StdMutex::new(FxHashMap::default()));
+    let pending: Arc<StdMutex<crate::hash::HashMap<u64, oneshot::Sender<IpcResponse>>>> =
+      Arc::new(StdMutex::new(crate::hash::HashMap::default()));
     let console_log: Arc<StdMutex<Vec<(String, String)>>> = Arc::new(StdMutex::new(Vec::new()));
     let dialog_log: Arc<StdMutex<Vec<(String, String, String)>>> = Arc::new(StdMutex::new(Vec::new()));
     let network_log: Arc<StdMutex<Vec<NetworkEvent>>> = Arc::new(StdMutex::new(Vec::new()));
@@ -540,7 +539,7 @@ impl IpcClient {
   /// Spawn the background reader thread that processes incoming IPC frames.
   fn spawn_reader_thread(
     read_sock: std::os::unix::net::UnixStream,
-    pending: Arc<StdMutex<FxHashMap<u64, oneshot::Sender<IpcResponse>>>>,
+    pending: Arc<StdMutex<crate::hash::HashMap<u64, oneshot::Sender<IpcResponse>>>>,
     ctx: ReaderCtx,
   ) {
     std::thread::spawn(move || {

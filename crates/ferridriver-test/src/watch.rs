@@ -122,7 +122,7 @@ impl FileWatcher {
 
   /// Non-blocking drain of all pending changes, deduplicated by path.
   pub fn drain_deduped(&self) -> Vec<ChangeKind> {
-    let mut seen = rustc_hash::FxHashSet::default();
+    let mut seen = ferridriver::hash::HashSet::default();
     let mut changes = Vec::new();
     while let Ok(kind) = self.rx.try_recv() {
       let key = match &kind {

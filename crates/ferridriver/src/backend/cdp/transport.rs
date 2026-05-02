@@ -4,7 +4,6 @@
 //! event broadcast) is identical for pipe and WebSocket transports. It lives
 //! here as `CdpDispatcher` — both transports embed it and call `dispatch_message`.
 
-use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{broadcast, oneshot};
@@ -25,7 +24,7 @@ fn truncate_for_log(s: &str, max: usize) -> String {
 type CdpResult = crate::Result<serde_json::Value>;
 
 /// Pending-command map: command ID -> oneshot sender for the CDP response.
-type PendingMap = FxHashMap<u64, oneshot::Sender<CdpResult>>;
+type PendingMap = crate::hash::HashMap<u64, oneshot::Sender<CdpResult>>;
 
 /// Trait abstracting CDP transport medium (pipes vs WebSocket).
 pub trait CdpTransport: Send + Sync + 'static {
@@ -68,8 +67,8 @@ pub(crate) struct LifecycleTracker {
 pub(crate) struct CdpDispatcher {
   pub next_id: AtomicU64,
   pub pending: Arc<std::sync::Mutex<PendingMap>>,
-  nav_waiters: Arc<std::sync::Mutex<FxHashMap<String, NavWaiter>>>,
-  lifecycle_trackers: Arc<std::sync::Mutex<FxHashMap<String, LifecycleTracker>>>,
+  nav_waiters: Arc<std::sync::Mutex<crate::hash::HashMap<String, NavWaiter>>>,
+  lifecycle_trackers: Arc<std::sync::Mutex<crate::hash::HashMap<String, LifecycleTracker>>>,
   pub event_tx: broadcast::Sender<serde_json::Value>,
 }
 
@@ -86,9 +85,9 @@ impl CdpDispatcher {
     let (event_tx, _) = broadcast::channel(256);
     Self {
       next_id: AtomicU64::new(1),
-      pending: Arc::new(std::sync::Mutex::new(FxHashMap::default())),
-      nav_waiters: Arc::new(std::sync::Mutex::new(FxHashMap::default())),
-      lifecycle_trackers: Arc::new(std::sync::Mutex::new(FxHashMap::default())),
+      pending: Arc::new(std::sync::Mutex::new(crate::hash::HashMap::default())),
+      nav_waiters: Arc::new(std::sync::Mutex::new(crate::hash::HashMap::default())),
+      lifecycle_trackers: Arc::new(std::sync::Mutex::new(crate::hash::HashMap::default())),
       event_tx,
     }
   }

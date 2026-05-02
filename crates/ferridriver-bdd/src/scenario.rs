@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use rustc_hash::FxHashMap;
+use ferridriver::hash::HashMap;
 
 use crate::feature::{ParsedFeature, extract_tags};
 
@@ -23,7 +23,7 @@ pub struct ScenarioExecution {
   /// Source location: `file:line`.
   pub location: String,
   /// Example values from Scenario Outline expansion.
-  pub example_values: Option<FxHashMap<String, String>>,
+  pub example_values: Option<HashMap<String, String>>,
 }
 
 /// A step within a scenario, extracted from the Gherkin AST.
@@ -95,7 +95,7 @@ pub fn expand_feature(feature: &ParsedFeature) -> Vec<ScenarioExecution> {
 
           let headers = &table.rows[0];
           for (row_idx, row) in table.rows[1..].iter().enumerate() {
-            let mut values: FxHashMap<String, String> = FxHashMap::default();
+            let mut values: HashMap<String, String> = HashMap::default();
             for (i, header) in headers.iter().enumerate() {
               if let Some(val) = row.get(i) {
                 values.insert(header.clone(), val.clone());
@@ -184,7 +184,7 @@ fn gherkin_step_to_scenario_step(step: &gherkin::Step) -> ScenarioStep {
   }
 }
 
-fn substitute_placeholders(text: &str, values: &FxHashMap<String, String>) -> String {
+fn substitute_placeholders(text: &str, values: &HashMap<String, String>) -> String {
   let mut result = text.to_string();
   for (key, val) in values {
     result = result.replace(&format!("<{key}>"), val);

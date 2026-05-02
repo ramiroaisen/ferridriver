@@ -23,8 +23,6 @@
 //! })).await?;
 //! ```
 
-use rustc_hash::FxHashMap;
-
 /// How to respond to an intercepted request.
 #[derive(Debug, Clone)]
 pub enum RouteAction {
@@ -83,7 +81,7 @@ pub struct InterceptedRequest {
   /// HTTP method.
   pub method: String,
   /// Request headers.
-  pub headers: FxHashMap<String, String>,
+  pub headers: crate::hash::HashMap<String, String>,
   /// POST body (if any).
   pub post_data: Option<String>,
   /// Resource type (Document, Script, Stylesheet, Image, etc.).

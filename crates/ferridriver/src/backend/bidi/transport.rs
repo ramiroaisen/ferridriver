@@ -4,7 +4,6 @@
 //! Uses `json_scan` for zero-allocation hot-path field extraction (same as CDP).
 
 use futures::{SinkExt, StreamExt};
-use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -41,7 +40,7 @@ pub(crate) struct BidiEvent {
 }
 
 /// Pending command map: command ID -> oneshot sender for the response.
-type PendingMap = FxHashMap<u64, oneshot::Sender<BidiResult>>;
+type PendingMap = crate::hash::HashMap<u64, oneshot::Sender<BidiResult>>;
 
 // ── Transport ──────────────────────────────────────────────────────────────
 
@@ -69,7 +68,7 @@ impl BidiTransport {
       .map_err(|e| FerriError::backend(format!("BiDi WebSocket connect to {ws_url}: {e}")))?;
 
     let (write, read) = ws_stream.split();
-    let pending: Arc<std::sync::Mutex<PendingMap>> = Arc::new(std::sync::Mutex::new(FxHashMap::default()));
+    let pending: Arc<std::sync::Mutex<PendingMap>> = Arc::new(std::sync::Mutex::new(crate::hash::HashMap::default()));
 
     // Writer task
     let (write_tx, mut write_rx) = mpsc::channel::<Message>(128);

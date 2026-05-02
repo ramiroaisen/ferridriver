@@ -12,7 +12,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use rustc_hash::FxHashMap;
+use ferridriver::hash::HashMap;
 use tokio::sync::{Mutex, mpsc};
 
 use crate::config::{ContextConfig, TestConfig, ViewportConfig};
@@ -438,8 +438,8 @@ async fn apply_page_config(
 fn build_browser_fixture_defs(
   resources: Arc<TestBrowserResources>,
   scope: FixtureScope,
-) -> FxHashMap<String, FixtureDef> {
-  let mut defs = FxHashMap::default();
+) -> HashMap<String, FixtureDef> {
+  let mut defs = HashMap::default();
 
   defs.insert(
     "context".into(),
@@ -511,11 +511,11 @@ fn build_browser_fixture_defs(
   defs
 }
 
-fn build_test_fixture_defs(resources: Arc<TestBrowserResources>) -> FxHashMap<String, FixtureDef> {
+fn build_test_fixture_defs(resources: Arc<TestBrowserResources>) -> HashMap<String, FixtureDef> {
   build_browser_fixture_defs(resources, FixtureScope::Test)
 }
 
-fn build_suite_fixture_defs(resources: Arc<TestBrowserResources>) -> FxHashMap<String, FixtureDef> {
+fn build_suite_fixture_defs(resources: Arc<TestBrowserResources>) -> HashMap<String, FixtureDef> {
   build_browser_fixture_defs(resources, FixtureScope::Worker)
 }
 
@@ -609,7 +609,7 @@ impl Worker {
       .await;
     custom_fixture_pool.inject("browser", Arc::clone(&browser));
 
-    let mut active_suites: FxHashMap<String, SuiteState> = FxHashMap::default();
+    let mut active_suites: HashMap<String, SuiteState> = HashMap::default();
     let mut prepared_page = Some(Self::spawn_prepared_page(Arc::clone(&browser)));
 
     while let Ok(item) = rx.recv().await {
@@ -730,7 +730,7 @@ impl Worker {
     &self,
     browser: &Arc<ferridriver::Browser>,
     custom_pool: &FixturePool,
-    active_suites: &mut FxHashMap<String, SuiteState>,
+    active_suites: &mut HashMap<String, SuiteState>,
     prepared_page: &mut Option<tokio::task::JoinHandle<PreparedPage>>,
     batch: SerialBatch,
   ) -> Vec<WorkerTestResult> {
@@ -795,7 +795,7 @@ impl Worker {
     &self,
     browser: &Arc<ferridriver::Browser>,
     custom_pool: &FixturePool,
-    active_suites: &mut FxHashMap<String, SuiteState>,
+    active_suites: &mut HashMap<String, SuiteState>,
     prepared_page: &mut Option<tokio::task::JoinHandle<PreparedPage>>,
     assignment: TestAssignment,
   ) -> WorkerTestResult {

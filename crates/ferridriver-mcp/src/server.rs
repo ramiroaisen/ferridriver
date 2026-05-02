@@ -7,6 +7,7 @@ use ferridriver::Page;
 use ferridriver::actions;
 use ferridriver::backend::BackendKind;
 use ferridriver::backend::{AnyElement, AnyPage};
+use ferridriver::hash::HashMap;
 use ferridriver::snapshot;
 use ferridriver::state::{BrowserState, ConnectMode, ContextLogHandles};
 use rmcp::{
@@ -21,7 +22,6 @@ use rmcp::{
   service::RequestContext,
   tool_handler,
 };
-use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
@@ -47,7 +47,7 @@ pub struct SharedState {
 }
 
 /// Type alias for the `ArcSwap`-wrapped ref map used for wait-free reads.
-type RefMapHandle = Arc<ArcSwap<FxHashMap<String, i64>>>;
+type RefMapHandle = Arc<ArcSwap<HashMap<String, i64>>>;
 
 impl SharedState {
   fn new(browser_state: BrowserState) -> Self {
@@ -573,7 +573,7 @@ impl McpServer {
   /// or if the underlying element lookup fails.
   pub async fn resolve(
     page: &Page,
-    ref_map: &rustc_hash::FxHashMap<String, i64>,
+    ref_map: &HashMap<String, i64>,
     r#ref: Option<&String>,
     selector: Option<&String>,
   ) -> Result<AnyElement, String> {

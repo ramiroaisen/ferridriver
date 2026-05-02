@@ -3,9 +3,9 @@
 use std::sync::Arc;
 
 use ferridriver::context::ContextRef;
+use ferridriver::hash::HashMap;
 use rquickjs::function::Opt;
 use rquickjs::{Ctx, JsLifetime, Value, class::Trace};
-use rustc_hash::FxHashMap;
 
 use crate::bindings::convert::{FerriResultExt, init_script_from_js, serde_from_js, serde_to_js};
 
@@ -100,7 +100,7 @@ impl BrowserContextJs {
   /// `headers` is a plain object (e.g. `{ 'X-Foo': 'bar' }`).
   #[qjs(rename = "setExtraHTTPHeaders")]
   pub async fn set_extra_http_headers<'js>(&self, ctx: Ctx<'js>, headers: Value<'js>) -> rquickjs::Result<()> {
-    let map: FxHashMap<String, String> = serde_from_js(&ctx, headers)?;
+    let map: HashMap<String, String> = serde_from_js(&ctx, headers)?;
     self.inner.set_extra_http_headers(map).await.into_js()
   }
 
