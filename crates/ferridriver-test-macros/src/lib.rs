@@ -8,7 +8,7 @@
 //!
 //! #[ferritest]
 //! async fn basic_navigation(page: Page) {
-//!     page.goto("https://example.com", None).await.unwrap();
+//!     page.goto("https://example.org", None).await.unwrap();
 //!     expect(&page).to_have_title("Example").await.unwrap();
 //! }
 //!
@@ -338,13 +338,13 @@ impl Parse for FerritestEachArgs {
 /// First parameter is `FixturePool`, remaining parameters receive the data values.
 ///
 /// ```ignore
-/// #[ferritest_each(data = [("admin", "admin@example.com"), ("guest", "guest@example.com")])]
+/// #[ferritest_each(data = [("admin", "admin@example.org"), ("guest", "guest@example.org")])]
 /// async fn login(pool: FixturePool, role: &str, email: &str) {
 ///     let page = pool.page().await.unwrap();
 ///     page.goto(&format!("/login?role={role}"), None).await.unwrap();
 /// }
 /// ```
-/// Registers: `login (admin, admin@example.com)` and `login (guest, guest@example.com)`.
+/// Registers: `login (admin, admin@example.org)` and `login (guest, guest@example.org)`.
 #[proc_macro_attribute]
 pub fn ferritest_each(attr: TokenStream, item: TokenStream) -> TokenStream {
   let args = parse_macro_input!(attr as FerritestEachArgs);

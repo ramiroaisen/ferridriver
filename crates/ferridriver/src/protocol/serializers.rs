@@ -964,8 +964,8 @@ mod tests {
       json!({"d": "2024-01-01T00:00:00.000Z"})
     );
     assert_eq!(
-      serde_json::to_value(SerializedValue::url("https://example.com/")).unwrap(),
-      json!({"u": "https://example.com/"})
+      serde_json::to_value(SerializedValue::url("https://example.org/")).unwrap(),
+      json!({"u": "https://example.org/"})
     );
     assert_eq!(
       serde_json::to_value(SerializedValue::bigint("9007199254740993")).unwrap(),

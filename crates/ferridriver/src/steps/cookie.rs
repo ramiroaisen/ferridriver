@@ -12,7 +12,7 @@ step!(SetCookieDomain {
     category: StepCategory::Cookie,
     pattern: r"^I set cookie (.+) to (.+) on (.+)$",
     description: "Set cookie with domain",
-    example: "When I set cookie \"token\" to \"abc\" on \"example.com\"",
+    example: "When I set cookie \"token\" to \"abc\" on \"example.org\"",
     execute(page, caps, _table, _vars) {
         let name = q(&caps[1]);
         let value = q(&caps[2]);

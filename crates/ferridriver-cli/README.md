@@ -101,7 +101,7 @@ ES module `import './foo.js'` resolves inside `script_root` with the same sandbo
 ```jsonc
 {
   "source":           "await page.goto(args[0]); return await page.title();",
-  "args":             ["https://example.com"],  // bound array, accessed via args[0]
+  "args":             ["https://example.org"],  // bound array, accessed via args[0]
   "timeout_ms":       30000,                     // optional; default 5 min
   "memory_limit_mb":  256,                        // optional; default 256 MiB
   "session":          "default"                   // optional
@@ -148,7 +148,7 @@ Session-scoped `vars` persist across `run_script` calls with the same session; f
 
 ```
 ### Page
-- URL: https://example.com
+- URL: https://example.org
 - Title: Example Domain
 
 ### Snapshot

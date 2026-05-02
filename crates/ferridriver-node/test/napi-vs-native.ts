@@ -39,7 +39,7 @@ async function medianAsync(fn: () => Promise<any>): Promise<number> {
 
 async function main() {
   const browser = await Browser.launch({ backend: "cdp-pipe" });
-  const page = await browser.newPageWithUrl("https://example.com");
+  const page = await browser.newPageWithUrl("https://example.org");
 
   console.log("=== SYNCHRONOUS NAPI CALLS (no CDP, pure NAPI boundary cost) ===\n");
 

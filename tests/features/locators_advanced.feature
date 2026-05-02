@@ -24,9 +24,9 @@ Feature: Locators advanced
   Scenario: Fill by label and verify
     Given I navigate to "/locators.html"
     When I fill "#username" with "testuser"
-    And I fill "#email" with "test@example.com"
+    And I fill "#email" with "test@example.org"
     Then "#username" should have value "testuser"
-    And "#email" should have value "test@example.com"
+    And "#email" should have value "test@example.org"
 
   Scenario: Disabled button is not clickable
     Given I navigate to "/locators.html"

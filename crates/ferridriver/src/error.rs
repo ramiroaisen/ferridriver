@@ -241,10 +241,10 @@ mod tests {
 
   #[test]
   fn timeout_message_matches_playwright_shape() {
-    let err = FerriError::timeout("navigating to https://example.com", 30_000);
+    let err = FerriError::timeout("navigating to https://example.org", 30_000);
     assert_eq!(
       err.to_string(),
-      "Timeout 30000ms exceeded while navigating to https://example.com"
+      "Timeout 30000ms exceeded while navigating to https://example.org"
     );
     assert_eq!(err.name(), "TimeoutError");
     assert!(err.is_timeout_error());
@@ -318,12 +318,12 @@ mod tests {
   #[test]
   fn navigation_error_formats_url_and_message() {
     let err = FerriError::Navigation {
-      url: "https://example.com".into(),
+      url: "https://example.org".into(),
       message: "net::ERR_NAME_NOT_RESOLVED".into(),
     };
     assert_eq!(
       err.to_string(),
-      "navigation to https://example.com failed: net::ERR_NAME_NOT_RESOLVED"
+      "navigation to https://example.org failed: net::ERR_NAME_NOT_RESOLVED"
     );
   }
 

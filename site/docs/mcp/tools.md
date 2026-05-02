@@ -57,7 +57,7 @@ ES module `import './foo.js'` resolves inside `script_root` with the same sandbo
 ```jsonc
 {
   "source": "await page.goto(args[0]); return await page.title();",
-  "args": ["https://example.com"],
+  "args": ["https://example.org"],
   "timeout_ms": 30000,         // optional; default 5 min
   "memory_limit_mb": 256,       // optional; default 256 MiB
   "session": "default"          // optional; default 'default'
@@ -104,7 +104,7 @@ Scripts that throw surface as `status: "error"` in the payload — not as MCP-le
 
 ```
 ### Page
-- URL: https://example.com
+- URL: https://example.org
 - Title: Example Domain
 
 ### Snapshot

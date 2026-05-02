@@ -88,6 +88,6 @@ ferridriver-test test tests/smoke.spec.ts                # specific file
 ferridriver-test test tests/features/*.feature -t "@smoke"
 ferridriver-test test tests/ --steps 'steps/**/*.ts'     # mixed E2E + BDD
 ferridriver-test ct --framework react                    # React component tests
-ferridriver-test codegen https://example.com             # record as Rust
+ferridriver-test codegen https://example.org             # record as Rust
 ferridriver-test install --with-deps                     # Chromium + system deps
 ```

@@ -20,8 +20,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let browser = Browser::launch(LaunchOptions::default()).await?;
     let page = browser.page().await?;
 
-    page.goto("https://example.com", None).await?;
-    page.locator("#email").fill("test@example.com").await?;
+    page.goto("https://example.org", None).await?;
+    page.locator("#email").fill("test@example.org").await?;
     page.locator("button[type=submit]").click().await?;
     page.wait_for_url("/dashboard").await?;
 
@@ -43,9 +43,9 @@ bun add @ferridriver/node
 import { Browser } from '@ferridriver/node';
 
 const browser = await Browser.launch();
-const page = await browser.newPageWithUrl('https://example.com');
+const page = await browser.newPageWithUrl('https://example.org');
 
-await page.locator('#email').fill('test@example.com');
+await page.locator('#email').fill('test@example.org');
 await page.locator('button[type=submit]').click();
 await page.waitForUrl('/dashboard');
 
@@ -62,7 +62,7 @@ use ferridriver_test::prelude::*;
 #[ferritest]
 async fn loads_homepage(ctx: TestContext) {
     let page = ctx.page().await?;
-    page.goto("https://example.com", None).await?;
+    page.goto("https://example.org", None).await?;
     expect(&page).to_have_title("Example Domain").await?;
 }
 ```

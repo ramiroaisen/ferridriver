@@ -7,7 +7,7 @@
 //! #[ferritest]
 //! async fn my_test(ctx: TestContext) {
 //!     let page = ctx.page().await?;
-//!     page.goto("https://example.com", None).await?;
+//!     page.goto("https://example.org", None).await?;
 //! }
 //! ```
 

@@ -2,7 +2,7 @@ Feature: Rule Keyword
   Gherkin 6+ Rule keyword groups related scenarios under a business rule.
 
   Background:
-    Given I navigate to "https://example.com"
+    Given I navigate to "https://example.org"
 
   Rule: Page structure
     Scenario: Has a heading
@@ -17,4 +17,4 @@ Feature: Rule Keyword
       Then the page title should be "Example Domain"
 
     Scenario: Has correct URL
-      Then the URL should contain "example.com"
+      Then the URL should contain "example.org"

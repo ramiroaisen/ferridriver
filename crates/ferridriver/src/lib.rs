@@ -10,7 +10,7 @@
 //! use ferridriver::options::RoleOptions;
 //!
 //! let browser = Browser::launch().await?;
-//! let page = browser.new_page_with_url("https://example.com").await?;
+//! let page = browser.new_page_with_url("https://example.org").await?;
 //!
 //! // Playwright-style locators
 //! page.get_by_role("link", RoleOptions { name: Some("More".into()), ..Default::default() })

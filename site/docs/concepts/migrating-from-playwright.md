@@ -11,10 +11,10 @@ Selectors, `Page`, `Locator`, `Frame`, `BrowserContext`, fixtures injected into 
 import { test, expect } from '@ferridriver/test';
 
 test('login', async ({ page }) => {
-  await page.goto('https://app.example.com/login');
-  await page.getByLabel('Email').fill('user@example.com');
+  await page.goto('https://app.example.org/login');
+  await page.getByLabel('Email').fill('user@example.org');
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page).toHaveURL('https://app.example.com/dashboard');
+  await expect(page).toHaveURL('https://app.example.org/dashboard');
 });
 ```
 
@@ -36,7 +36,7 @@ Playwright's web-first assertions expose ~30 matchers on the TypeScript side. fe
 
 Today's TS matcher set: `toHaveTitle`, `toHaveURL`, `toBeVisible`, `toBeHidden`, `toBeEnabled`, `toBeDisabled`, `toBeChecked`, `toHaveText`, `toContainText`, `toHaveValue`, `toHaveAttribute`, `toHaveCount`, `toPass`.
 
-**No regex arguments on the TS side yet.** `toHaveURL(/dashboard/)` works in Playwright; today use `toHaveURL('https://app.example.com/dashboard')`. Regex is supported in Rust via `impl Into<StringOrRegex>`.
+**No regex arguments on the TS side yet.** `toHaveURL(/dashboard/)` works in Playwright; today use `toHaveURL('https://app.example.org/dashboard')`. Regex is supported in Rust via `impl Into<StringOrRegex>`.
 
 For matchers not yet in the TS surface (e.g. `toBeEditable`, `toHaveClass`, `toMatchAriaSnapshot`), the escape hatch is `toPass`:
 

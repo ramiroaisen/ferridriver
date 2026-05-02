@@ -388,9 +388,9 @@ mod tests {
   #[test]
   fn playwright_canonical_api_glob_compiles_and_matches() {
     let m = UrlMatcher::glob("**/api/*").expect("valid glob");
-    assert!(m.matches("https://example.com/api/users"));
-    assert!(m.matches("https://example.com/v1/api/users"));
-    assert!(!m.matches("https://example.com/api/users/123")); // single * stops at /
+    assert!(m.matches("https://example.org/api/users"));
+    assert!(m.matches("https://example.org/v1/api/users"));
+    assert!(!m.matches("https://example.org/api/users/123")); // single * stops at /
     assert!(m.matches("/api/x"));
   }
 
@@ -400,7 +400,7 @@ mod tests {
   fn any_matches_all() {
     let m = UrlMatcher::any();
     assert!(m.matches(""));
-    assert!(m.matches("https://example.com"));
+    assert!(m.matches("https://example.org"));
   }
 
   #[test]
@@ -413,21 +413,21 @@ mod tests {
   fn regex_substring_match_when_unanchored() {
     let re = regex::Regex::new(r"/api/").unwrap();
     let m = UrlMatcher::regex(re);
-    assert!(m.matches("https://example.com/api/users"));
-    assert!(!m.matches("https://example.com/rest/users"));
+    assert!(m.matches("https://example.org/api/users"));
+    assert!(!m.matches("https://example.org/rest/users"));
   }
 
   #[test]
   fn regex_from_source_with_case_insensitive_flag() {
     let m = UrlMatcher::regex_from_source(r"/API/", "i").unwrap();
-    assert!(m.matches("https://example.com/api/x"));
-    assert!(m.matches("https://example.com/API/x"));
+    assert!(m.matches("https://example.org/api/x"));
+    assert!(m.matches("https://example.org/API/x"));
   }
 
   #[test]
   fn regex_from_source_global_flag_is_accepted_and_ignored() {
     let m = UrlMatcher::regex_from_source(r"/api/", "g").unwrap();
-    assert!(m.matches("https://example.com/api/x"));
+    assert!(m.matches("https://example.org/api/x"));
   }
 
   #[test]
@@ -441,8 +441,8 @@ mod tests {
     // Use a simple substring check — we're testing closure invocation, not
     // path-extension logic.
     let m = UrlMatcher::predicate(|url| url.contains("/api/"));
-    assert!(m.matches("https://example.com/api/users"));
-    assert!(!m.matches("https://example.com/static/users"));
+    assert!(m.matches("https://example.org/api/users"));
+    assert!(!m.matches("https://example.org/static/users"));
   }
 
   #[test]

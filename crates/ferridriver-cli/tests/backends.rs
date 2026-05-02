@@ -239,10 +239,10 @@ fn test_console_messages(c: &mut McpClient) {
 }
 
 fn test_network_requests(c: &mut McpClient) {
-  c.nav_url("https://example.com");
+  c.nav_url("https://example.org");
   let t = c.tool_text("diagnostics", json!({"type": "network"}));
   assert!(
-    t.contains("example.com") || t.contains("GET") || t.contains("request"),
+    t.contains("example.org") || t.contains("GET") || t.contains("request"),
     "network diagnostics should list requests: {t}"
   );
 }
@@ -1944,10 +1944,10 @@ fn test_script_markdown(c: &mut McpClient) {
 }
 
 fn test_script_markdown_links(c: &mut McpClient) {
-  c.nav("<p>Visit <a href='https://example.com'>Example</a></p>");
+  c.nav("<p>Visit <a href='https://example.org'>Example</a></p>");
   let v = c.script_value("return await page.markdown();");
   let md = v.as_str().unwrap_or("").to_string();
-  assert!(md.contains("[Example](https://example.com)"), "markdown links: {md}");
+  assert!(md.contains("[Example](https://example.org)"), "markdown links: {md}");
 }
 
 // ─── run_script: Locator chains ─────────────────────────────────────────────
@@ -2014,10 +2014,10 @@ fn test_script_auto_wait_visibility(c: &mut McpClient) {
 // ─── run_script: BrowserContext ─────────────────────────────────────────────
 
 fn test_script_cookies(c: &mut McpClient) {
-  c.nav_url("https://example.com");
+  c.nav_url("https://example.org");
   let v = c.script_value(
     "await context.addCookies([{ \
-         name: 'k', value: 'v', domain: 'example.com', path: '/', \
+         name: 'k', value: 'v', domain: 'example.org', path: '/', \
          secure: false, httpOnly: false, sameSite: 'Lax' \
        }]); \
        const cookies = await context.cookies(); \
@@ -2031,7 +2031,7 @@ fn test_script_cookies(c: &mut McpClient) {
 }
 
 fn test_script_localstorage(c: &mut McpClient) {
-  c.nav_url("https://example.com");
+  c.nav_url("https://example.org");
   // localStorage lives in the page, not the runner — drive it through
   // page.evaluate. page.evaluate rehydrates native JS values directly.
   let v = c.script_value(

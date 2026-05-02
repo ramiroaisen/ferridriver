@@ -29,7 +29,7 @@ On macOS, the tarball also ships `fd_webkit_host` — the Objective-C subprocess
 import { Browser } from '@ferridriver/node';
 
 const browser = await Browser.launch();
-const page = await browser.newPageWithUrl('https://example.com');
+const page = await browser.newPageWithUrl('https://example.org');
 
 // Playwright-style locators
 const heading = page.locator('h1');

@@ -9,17 +9,17 @@ use ferridriver_test::prelude::*;
 
 #[ferritest]
 async fn basic_navigation(page: Page) {
-    page.goto("https://example.com", None).await.unwrap();
+    page.goto("https://example.org", None).await.unwrap();
     expect(&page).to_have_title("Example Domain").await.unwrap();
 }
 
 #[ferritest(retries = 2, tag = "smoke")]
 async fn login_flow(page: Page) {
-    page.goto("https://app.example.com/login", None).await.unwrap();
-    page.locator("#email").fill("user@example.com").await.unwrap();
+    page.goto("https://app.example.org/login", None).await.unwrap();
+    page.locator("#email").fill("user@example.org").await.unwrap();
     page.locator("#password").fill("password").await.unwrap();
     page.locator("button[type=submit]").click().await.unwrap();
-    expect(&page).to_have_url("https://app.example.com/dashboard").await.unwrap();
+    expect(&page).to_have_url("https://app.example.org/dashboard").await.unwrap();
 }
 ```
 

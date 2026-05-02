@@ -42,7 +42,7 @@ Allure is the de facto standard enterprise test reporting framework used by QA t
       { "name": "severity", "value": "critical" }
     ],
     "links": [
-      { "name": "JIRA-1234", "url": "https://jira.example.com/JIRA-1234", "type": "issue" }
+      { "name": "JIRA-1234", "url": "https://jira.example.org/JIRA-1234", "type": "issue" }
     ],
     "start": 1234567890,
     "stop": 1234567999

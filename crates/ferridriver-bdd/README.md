@@ -33,7 +33,7 @@ Feature: Login
 
   @smoke
   Scenario: Successful login
-    Given I navigate to "https://app.example.com/login"
+    Given I navigate to "https://app.example.org/login"
     When I fill "#email" with "user@test.com"
     And I fill "#password" with "secret"
     And I click "button[type=submit]"

@@ -4,7 +4,7 @@ Feature: Forms advanced
   Scenario: Fill registration form and submit
     Given I navigate to "/forms.html"
     When I fill "#fullname" with "Jane Smith"
-    And I fill "#email" with "jane@example.com"
+    And I fill "#email" with "jane@example.org"
     And I fill "#password" with "securepass123"
     And I fill "#confirm-password" with "securepass123"
     And I select "United Kingdom" from "#country"
