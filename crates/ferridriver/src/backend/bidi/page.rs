@@ -4,6 +4,7 @@
 //! `wait` parameter for lifecycle synchronization (no register-before-navigate race).
 
 use std::sync::Arc;
+use std::sync::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use base64::Engine;
@@ -2301,13 +2302,23 @@ impl BidiNetworkTracker {
     })
   }
 
+  // The closure returned here is stored on the `Response` object that itself
+  // lives inside `tracker.responses`. Capturing `Arc<Self>` would form a cycle
+  // (tracker -> responses map -> Response -> fn -> tracker) that survives the
+  // page/browser lifetime -- every navigated page would leak its full network
+  // log plus the BiDi session it transitively pins. Capture `Weak<Self>` and
+  // upgrade per call instead; if the tracker is gone, the headers are gone
+  // with it. Mirrors the CDP fix in `cdp::mod::make_response_raw_headers_fn`.
   fn make_raw_headers_fn(self: &Arc<Self>, request_id: &str) -> RawHeadersFn {
-    let tracker = self.clone();
+    let weak: Weak<Self> = Arc::downgrade(self);
     let request_id = request_id.to_string();
     Arc::new(move || {
-      let tracker = tracker.clone();
+      let weak = weak.clone();
       let request_id = request_id.clone();
       Box::pin(async move {
+        let Some(tracker) = weak.upgrade() else {
+          return Ok(Vec::new());
+        };
         if let Some(resp) = tracker.responses.lock().await.get(&request_id) {
           return Ok(resp.headers_array().await);
         }
