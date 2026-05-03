@@ -4087,13 +4087,22 @@ impl<T: CdpTransport + 'static> NetworkTracker<T> {
     })
   }
 
+  // The closures returned here are stored on `Request`/`Response` objects
+  // that themselves live inside `tracker.requests` / `tracker.responses`.
+  // Capturing `Arc<Self>` would form a cycle (tracker → map → entry → fn →
+  // tracker) that survives the page/browser lifetime — every navigated page
+  // would leak its full network log. Capture `Weak<Self>` and upgrade per
+  // call instead; if the tracker is gone, the headers are gone with it.
   fn make_request_raw_headers_fn(self: &Arc<Self>, request_id: &str) -> RawHeadersFn {
-    let tracker = self.clone();
+    let weak = Arc::downgrade(self);
     let request_id = request_id.to_string();
     Arc::new(move || {
-      let tracker = tracker.clone();
+      let weak = weak.clone();
       let request_id = request_id.clone();
       Box::pin(async move {
+        let Some(tracker) = weak.upgrade() else {
+          return Ok(Vec::new());
+        };
         // Fall back to whatever headers the request currently has if no
         // extraInfo arrived (matches Playwright when CDP doesn't fire
         // it, e.g. in Service-Worker-served responses).
@@ -4107,12 +4116,15 @@ impl<T: CdpTransport + 'static> NetworkTracker<T> {
   }
 
   fn make_response_raw_headers_fn(self: &Arc<Self>, request_id: &str) -> RawHeadersFn {
-    let tracker = self.clone();
+    let weak = Arc::downgrade(self);
     let request_id = request_id.to_string();
     Arc::new(move || {
-      let tracker = tracker.clone();
+      let weak = weak.clone();
       let request_id = request_id.clone();
       Box::pin(async move {
+        let Some(tracker) = weak.upgrade() else {
+          return Ok(Vec::new());
+        };
         if let Some(resp) = tracker.responses.lock().await.get(&request_id) {
           return Ok(resp.headers_array().await);
         }
