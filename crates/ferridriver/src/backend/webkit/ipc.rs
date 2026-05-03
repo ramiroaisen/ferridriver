@@ -354,6 +354,9 @@ pub struct IpcClient {
   pub network_log: Arc<StdMutex<Vec<NetworkEvent>>>,
   /// Notified when any event arrives, so `attach_listeners` can drain immediately.
   pub event_notify: Arc<tokio::sync::Notify>,
+  /// Notified when the browser/host is shutting down so `attach_listeners` exits
+  /// and drops its `Weak` upgrade path — avoids leaking `Arc<IpcClient>` forever.
+  pub listener_abort: Arc<tokio::sync::Notify>,
   /// Route handler callback. Called from the reader thread for route requests.
   /// Set by `WebKitPage` when routes are registered.
   pub route_handler: Arc<StdMutex<Option<RouteCallback>>>,
@@ -460,6 +463,7 @@ impl IpcClient {
       write_sock.try_clone().map_err(|e| format!("clone writer: {e}"))?,
     ));
     let event_notify = Arc::new(tokio::sync::Notify::new());
+    let listener_abort = Arc::new(tokio::sync::Notify::new());
 
     // Reader thread: blocking reads of binary frames
     Self::spawn_reader_thread(
@@ -483,6 +487,7 @@ impl IpcClient {
       dialog_log,
       network_log,
       event_notify,
+      listener_abort,
       route_handler,
     };
 

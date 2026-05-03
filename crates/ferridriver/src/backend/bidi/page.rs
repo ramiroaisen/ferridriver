@@ -1269,11 +1269,11 @@ impl BidiPage {
     let mut rx = self.session.transport.subscribe_events();
     let ctx = self.context_id.clone();
     let dialog_handler = self.dialog_handler.clone();
-    let session = self.session.clone();
+    let session_weak = Arc::downgrade(&self.session);
     let closed = self.closed.clone();
     let emitter = self.events.clone();
     let injected_script = self.injected_script.clone();
-    let tracker = Arc::new(BidiNetworkTracker::new(self.session.clone()));
+    let tracker = Arc::new(BidiNetworkTracker::new(session_weak.clone()));
 
     tokio::spawn(async move {
       while let Ok(event) = rx.recv().await {
@@ -1349,10 +1349,12 @@ impl BidiPage {
               handle_params["userText"] = json!(t);
             }
 
-            let _ = session
-              .transport
-              .send_command("browsingContext.handleUserPrompt", handle_params)
-              .await;
+            if let Some(session) = session_weak.upgrade() {
+              let _ = session
+                .transport
+                .send_command("browsingContext.handleUserPrompt", handle_params)
+                .await;
+            }
           },
           "browsingContext.contextDestroyed" => {
             closed.store(true, Ordering::Relaxed);
@@ -1446,7 +1448,7 @@ impl BidiPage {
     _max_height: u32,
   ) -> impl std::future::Future<Output = crate::Result<tokio::sync::mpsc::UnboundedReceiver<(Vec<u8>, f64)>>> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let session = self.session.clone();
+    let session_weak = Arc::downgrade(&self.session);
     let ctx_id = self.context_id.clone();
     let closed = self.closed.clone();
 
@@ -1486,6 +1488,9 @@ impl BidiPage {
         }
         let frame_start = tokio::time::Instant::now();
 
+        let Some(session) = session_weak.upgrade() else {
+          break;
+        };
         let result = session
           .transport
           .send_command("browsingContext.captureScreenshot", capture_params.clone())
@@ -1584,7 +1589,7 @@ impl BidiPage {
       // Spawn a single listener task for all route handlers on this page
       let mut rx = self.session.transport.subscribe_events();
       let ctx = self.context_id.clone();
-      let session = self.session.clone();
+      let session_weak = Arc::downgrade(&self.session);
       let routes = self.routes.clone();
 
       tokio::spawn(async move {
@@ -1648,8 +1653,14 @@ impl BidiPage {
             let action = action_rx.await.unwrap_or(crate::route::RouteAction::Continue(
               crate::route::ContinueOverrides::default(),
             ));
+            let Some(session) = session_weak.upgrade() else {
+              break;
+            };
             execute_bidi_route_action(&session.transport, request_id, action).await;
           } else {
+            let Some(session) = session_weak.upgrade() else {
+              break;
+            };
             let _ = session
               .transport
               .send_command("network.continueRequest", json!({"request": request_id}))
@@ -2072,13 +2083,13 @@ fn collect_frames(ctx: &serde_json::Value, parent_id: Option<&str>, frames: &mut
 /// `WebSocket.body()` / `WebSocket` frame observation surface the typed
 /// `FerriError::Unsupported` per Rule 4 instead of dangling indefinitely.
 struct BidiNetworkTracker {
-  session: Arc<super::session::BidiSession>,
+  session: Weak<BidiSession>,
   requests: tokio::sync::Mutex<crate::hash::HashMap<String, NetworkRequest>>,
   responses: tokio::sync::Mutex<crate::hash::HashMap<String, Response>>,
 }
 
 impl BidiNetworkTracker {
-  fn new(session: Arc<super::session::BidiSession>) -> Self {
+  fn new(session: Weak<BidiSession>) -> Self {
     Self {
       session,
       requests: tokio::sync::Mutex::new(crate::hash::HashMap::default()),
@@ -2267,7 +2278,10 @@ impl BidiNetworkTracker {
       let session = session.clone();
       let request_id = request_id.clone();
       Box::pin(async move {
-        let resp = session
+        let Some(sess) = session.upgrade() else {
+          return Err(FerriError::backend("BiDi session dropped (page or browser closed)"));
+        };
+        let resp = sess
           .transport
           .send_command(
             "network.getData",

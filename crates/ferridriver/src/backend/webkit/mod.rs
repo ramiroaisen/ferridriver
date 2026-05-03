@@ -24,12 +24,14 @@ use ipc::{IpcClient, IpcResponse, Op};
 /// on `WebKitBrowser` ensures this `Drop` only runs on the final clone.
 struct WebKitChildGuard {
   child: std::sync::Mutex<Option<std::process::Child>>,
+  listener_abort: Option<std::sync::Arc<tokio::sync::Notify>>,
 }
 
 impl WebKitChildGuard {
-  fn new(child: std::process::Child) -> Self {
+  fn new(child: std::process::Child, listener_abort: Option<std::sync::Arc<tokio::sync::Notify>>) -> Self {
     Self {
       child: std::sync::Mutex::new(Some(child)),
+      listener_abort,
     }
   }
 
@@ -38,6 +40,9 @@ impl WebKitChildGuard {
   /// host is a session leader thanks to `setsid()` in its `pre_exec`), so any
   /// worker the host forked dies with it.
   fn shutdown(&self) {
+    if let Some(abort) = &self.listener_abort {
+      abort.notify_waiters();
+    }
     if let Ok(mut guard) = self.child.lock() {
       if let Some(mut child) = guard.take() {
         crate::backend::process::kill_process_group(child.id());
@@ -91,9 +96,10 @@ impl WebKitBrowser {
       Ok(IpcResponse::Value(v)) => v.as_str().map_or_else(|| Arc::from("WebKit/unknown"), Arc::from),
       _ => Arc::from("WebKit/unknown"),
     };
+    let listener_abort = client.listener_abort.clone();
     Ok(Self {
       client,
-      child: Arc::new(WebKitChildGuard::new(child)),
+      child: Arc::new(WebKitChildGuard::new(child, Some(listener_abort))),
       version,
     })
   }
@@ -1676,68 +1682,74 @@ impl WebKitPage {
     net_log: Arc<RwLock<Vec<NetworkRequest>>>,
     dialog_log: Arc<RwLock<Vec<crate::state::DialogEvent>>>,
   ) {
-    let client = self.client.clone();
+    let client_weak = std::sync::Arc::downgrade(&self.client);
     let emitter = self.events.clone();
-    let notify = client.event_notify.clone();
+    let notify = self.client.event_notify.clone();
+    let abort = self.client.listener_abort.clone();
     let injected_script = self.injected_script.clone();
     tokio::spawn(async move {
       loop {
-        // Wait for the IPC reader thread to signal that events arrived.
-        // No polling -- wakes instantly when a console/dialog/network event is received.
-        notify.notified().await;
-
-        // Drain console events
-        {
-          let msgs: Vec<(String, String)> = {
-            let Ok(mut log) = client.console_log.lock() else {
-              continue;
+        tokio::select! {
+          () = abort.notified() => break,
+          () = notify.notified() => {
+            let Some(client) = client_weak.upgrade() else {
+              break;
             };
-            if log.is_empty() {
-              Vec::new()
-            } else {
-              std::mem::take(&mut *log)
+
+            // Drain console events
+            {
+              let msgs: Vec<(String, String)> = {
+                let Ok(mut log) = client.console_log.lock() else {
+                  continue;
+                };
+                if log.is_empty() {
+                  Vec::new()
+                } else {
+                  std::mem::take(&mut *log)
+                }
+              };
+              if !msgs.is_empty() {
+                let mut dest = console_log.write().await;
+                for (r#type, text) in msgs {
+                  let msg = ConsoleMsg { r#type, text };
+                  emitter.emit(crate::events::PageEvent::Console(msg.clone()));
+                  dest.push(msg);
+                }
+              }
             }
-          };
-          if !msgs.is_empty() {
-            let mut dest = console_log.write().await;
-            for (r#type, text) in msgs {
-              let msg = ConsoleMsg { r#type, text };
-              emitter.emit(crate::events::PageEvent::Console(msg.clone()));
-              dest.push(msg);
+
+            // Drain dialog events
+            {
+              let evts: Vec<(String, String, String)> = {
+                let Ok(mut log) = client.dialog_log.lock() else {
+                  continue;
+                };
+                if log.is_empty() {
+                  Vec::new()
+                } else {
+                  std::mem::take(&mut *log)
+                }
+              };
+              if !evts.is_empty() {
+                let mut dest = dialog_log.write().await;
+                for (dtype, message, action) in evts {
+                  emitter.emit(crate::events::PageEvent::Dialog(crate::events::PendingDialog {
+                    dialog_type: dtype.clone(),
+                    message: message.clone(),
+                    default_value: String::new(),
+                  }));
+                  dest.push(crate::state::DialogEvent {
+                    dialog_type: dtype,
+                    message,
+                    action,
+                  });
+                }
+              }
             }
+
+            drain_network_events(&client, &net_log, &emitter, &injected_script).await;
           }
         }
-
-        // Drain dialog events
-        {
-          let evts: Vec<(String, String, String)> = {
-            let Ok(mut log) = client.dialog_log.lock() else {
-              continue;
-            };
-            if log.is_empty() {
-              Vec::new()
-            } else {
-              std::mem::take(&mut *log)
-            }
-          };
-          if !evts.is_empty() {
-            let mut dest = dialog_log.write().await;
-            for (dtype, message, action) in evts {
-              emitter.emit(crate::events::PageEvent::Dialog(crate::events::PendingDialog {
-                dialog_type: dtype.clone(),
-                message: message.clone(),
-                default_value: String::new(),
-              }));
-              dest.push(crate::state::DialogEvent {
-                dialog_type: dtype,
-                message,
-                action,
-              });
-            }
-          }
-        }
-
-        drain_network_events(&client, &net_log, &emitter, &injected_script).await;
       }
     });
   }
