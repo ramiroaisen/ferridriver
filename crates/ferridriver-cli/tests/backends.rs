@@ -1872,7 +1872,10 @@ fn test_script_selector_chain(c: &mut McpClient) {
 
 fn test_script_upload_file(c: &mut McpClient) {
   c.nav("<input type='file' id='f'><div id='r'></div><script>document.getElementById('f').addEventListener('change',function(e){var f=e.target.files[0];if(f){var reader=new FileReader();reader.onload=function(){document.getElementById('r').textContent='name:'+f.name+',size:'+f.size+',content:'+reader.result;};reader.readAsText(f);}});</script>");
-  let tmp = std::env::temp_dir().join("ferridriver_test_upload.txt");
+  // Unique basename: `cargo test` runs `all_tests_cdp_*` / `all_tests_bidi` in parallel;
+  // a fixed `temp_dir()/ferridriver_test_upload.txt` races across processes (size 0).
+  let upload_name = format!("ferridriver_test_upload_{}.txt", std::process::id());
+  let tmp = std::env::temp_dir().join(&upload_name);
   std::fs::write(&tmp, "test file content").unwrap();
   let v = c.script_value_with_args(
     "await page.setInputFiles('#f', [args[0]]); \
@@ -1883,7 +1886,7 @@ fn test_script_upload_file(c: &mut McpClient) {
     json!([tmp.to_str().unwrap()]),
   );
   assert_eq!(v["count"], json!(1));
-  assert_eq!(v["name"], json!("ferridriver_test_upload.txt"));
+  assert_eq!(v["name"], json!(upload_name));
   assert_eq!(v["size"], json!(17));
   let _ = std::fs::remove_file(&tmp);
 }

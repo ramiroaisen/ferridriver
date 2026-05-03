@@ -24,6 +24,7 @@ use crate::network::{
   self, BodyFn, HeaderEntry, Headers, RawHeadersFn, RemoteAddr, RequestInit, RequestSizes, RequestTiming, Response,
   ResponseInit, SecurityDetails, WebSocket, WebSocketPayload,
 };
+use std::sync::Weak;
 use std::time::Duration;
 use transport::CdpTransport;
 
@@ -1571,8 +1572,10 @@ impl<T: CdpWrap> CdpPage<T> {
     session_id: Option<Arc<str>>,
     frame_tx: tokio::sync::mpsc::UnboundedSender<(Vec<u8>, f64)>,
   ) {
+    let mut rx = transport.subscribe_events();
+    let weak = Arc::downgrade(&transport);
+    drop(transport);
     tokio::spawn(async move {
-      let mut rx = transport.subscribe_events();
       while let Ok(event) = rx.recv().await {
         // Filter by CDP session.
         if let Some(ref expected_sid) = session_id {
@@ -1612,9 +1615,12 @@ impl<T: CdpWrap> CdpPage<T> {
 
         // Acknowledge immediately (non-blocking) so Chrome sends the next frame ASAP.
         let ack_id = params.get("sessionId").and_then(serde_json::Value::as_i64).unwrap_or(0);
-        let t = transport.clone();
+        let tw = weak.clone();
         let sid = session_id.clone();
         tokio::spawn(async move {
+          let Some(t) = tw.upgrade() else {
+            return;
+          };
           let _ = t
             .send_command(
               sid.as_deref(),
@@ -2578,8 +2584,9 @@ impl<T: CdpWrap> CdpPage<T> {
     console_log: Arc<RwLock<Vec<ConsoleMsg>>>,
     emitter: crate::events::EventEmitter,
   ) {
+    let mut rx = transport.subscribe_events();
+    drop(transport);
     tokio::spawn(async move {
-      let mut rx = transport.subscribe_events();
       while let Ok(event) = rx.recv().await {
         if let Some(ref expected_sid) = session_id {
           let event_sid = event.get("sessionId").and_then(|v| v.as_str());
@@ -2617,9 +2624,10 @@ impl<T: CdpWrap> CdpPage<T> {
     network_log: Arc<RwLock<Vec<NetworkRequest>>>,
     emitter: crate::events::EventEmitter,
   ) {
-    let tracker: Arc<NetworkTracker<T>> = Arc::new(NetworkTracker::new(transport.clone(), session_id.clone()));
+    let mut rx = transport.subscribe_events();
+    let tracker: Arc<NetworkTracker<T>> = Arc::new(NetworkTracker::new(Arc::downgrade(&transport), session_id.clone()));
+    drop(transport);
     tokio::spawn(async move {
-      let mut rx = transport.subscribe_events();
       while let Ok(event) = rx.recv().await {
         if let Some(ref expected_sid) = session_id {
           let event_sid = event.get("sessionId").and_then(|v| v.as_str());
@@ -2714,8 +2722,10 @@ impl<T: CdpWrap> CdpPage<T> {
     dialog_log: Arc<RwLock<Vec<crate::state::DialogEvent>>>,
     emitter: crate::events::EventEmitter,
   ) {
+    let mut rx = transport.subscribe_events();
+    let weak = Arc::downgrade(&transport);
+    drop(transport);
     tokio::spawn(async move {
-      let mut rx = transport.subscribe_events();
       while let Ok(event) = rx.recv().await {
         if let Some(ref expected_sid) = session_id {
           let event_sid = event.get("sessionId").and_then(|v| v.as_str());
@@ -2749,6 +2759,9 @@ impl<T: CdpWrap> CdpPage<T> {
             if let Some(text) = &prompt_text {
               cmd_params["promptText"] = serde_json::Value::String(text.clone());
             }
+            let Some(transport) = weak.upgrade() else {
+              break;
+            };
             let _ = transport
               .send_command(session_id.as_deref(), "Page.handleJavaScriptDialog", cmd_params)
               .await;
@@ -2777,8 +2790,9 @@ impl<T: CdpWrap> CdpPage<T> {
     emitter: crate::events::EventEmitter,
     injected_script: Arc<InjectedScriptManager>,
   ) {
+    let mut rx = transport.subscribe_events();
+    drop(transport);
     tokio::spawn(async move {
-      let mut rx = transport.subscribe_events();
       while let Ok(event) = rx.recv().await {
         if let Some(ref expected_sid) = session_id {
           let event_sid = event.get("sessionId").and_then(|v| v.as_str());
@@ -2925,11 +2939,11 @@ bc.reject=function(seq,err){var c=bc.cbs[seq];if(c){delete bc.cbs[seq];c.j(new E
     self.add_init_script(Self::BINDING_CONTROLLER_JS).await?;
     self.evaluate(Self::BINDING_CONTROLLER_JS).await?;
 
-    let t = self.transport.clone();
+    let mut rx = self.transport.subscribe_events();
+    let weak = Arc::downgrade(&self.transport);
     let sid = self.session_id.clone();
     let fns = self.exposed_fns.clone();
     tokio::spawn(async move {
-      let mut rx = t.subscribe_events();
       while let Ok(event) = rx.recv().await {
         if let Some(ref expected_sid) = sid {
           let event_sid = event.get("sessionId").and_then(|v| v.as_str());
@@ -2964,7 +2978,10 @@ bc.reject=function(seq,err){var c=bc.cbs[seq];if(c){delete bc.cbs[seq];c.j(new E
               seq,
               serde_json::to_string(&result).unwrap_or_else(|_| "null".into())
             );
-            let _ = t
+            let Some(transport) = weak.upgrade() else {
+              break;
+            };
+            let _ = transport
               .send_command(
                 sid.as_deref(),
                 "Runtime.evaluate",
@@ -2973,7 +2990,10 @@ bc.reject=function(seq,err){var c=bc.cbs[seq];if(c){delete bc.cbs[seq];c.j(new E
               .await;
           } else {
             let deliver_js = format!("globalThis.__fd_bc.reject({seq}, 'Function not found: {fn_name}')");
-            let _ = t
+            let Some(transport) = weak.upgrade() else {
+              break;
+            };
+            let _ = transport
               .send_command(
                 sid.as_deref(),
                 "Runtime.evaluate",
@@ -3073,23 +3093,25 @@ bc.reject=function(seq,err){var c=bc.cbs[seq];if(c){delete bc.cbs[seq];c.j(new E
       )
       .await?;
 
-    let t = self.transport.clone();
+    let weak = Arc::downgrade(&self.transport);
     let sid = self.session_id.clone();
     let routes = self.routes.clone();
     let creds = self.http_credentials.clone();
     tokio::spawn(async move {
-      Self::handle_fetch_events(t, sid, routes, creds).await;
+      Self::handle_fetch_events(weak, sid, routes, creds).await;
     });
     Ok(())
   }
 
   async fn handle_fetch_events(
-    transport: Arc<T>,
+    weak: Weak<T>,
     session_id: Option<Arc<str>>,
     routes: Arc<tokio::sync::RwLock<Vec<crate::route::RegisteredRoute>>>,
     http_credentials: Arc<tokio::sync::RwLock<Option<(String, String)>>>,
   ) {
-    let mut rx = transport.subscribe_events();
+    let Some(mut rx) = weak.upgrade().map(|t| t.subscribe_events()) else {
+      return;
+    };
     while let Ok(event) = rx.recv().await {
       if let Some(ref expected_sid) = session_id {
         let event_sid = event.get("sessionId").and_then(|v| v.as_str());
@@ -3118,6 +3140,9 @@ bc.reject=function(seq,err){var c=bc.cbs[seq];if(c){delete bc.cbs[seq];c.j(new E
             "requestId": request_id,
             "authChallengeResponse": { "response": "CancelAuth" }
           })
+        };
+        let Some(transport) = weak.upgrade() else {
+          break;
         };
         let _ = transport
           .send_command(session_id.as_deref(), "Fetch.continueWithAuth", response)
@@ -3181,9 +3206,15 @@ bc.reject=function(seq,err){var c=bc.cbs[seq];if(c){delete bc.cbs[seq];c.j(new E
         let action = rx.await.unwrap_or(crate::route::RouteAction::Continue(
           crate::route::ContinueOverrides::default(),
         ));
+        let Some(transport) = weak.upgrade() else {
+          break;
+        };
         Self::execute_route_action(&transport, session_id.as_deref(), request_id, Some(action)).await;
       } else {
         // No matching route — continue with zero allocation beyond the CDP command.
+        let Some(transport) = weak.upgrade() else {
+          break;
+        };
         let _ = transport
           .send_command(
             session_id.as_deref(),
@@ -3672,7 +3703,7 @@ impl<T: CdpTransport> CdpElement<T> {
 // `Request` Arc through every event so listeners see live state.
 
 struct NetworkTracker<T: CdpTransport> {
-  transport: Arc<T>,
+  transport: Weak<T>,
   session_id: Option<Arc<str>>,
   requests: tokio::sync::Mutex<crate::hash::HashMap<String, network::Request>>,
   responses: tokio::sync::Mutex<crate::hash::HashMap<String, Response>>,
@@ -3683,7 +3714,7 @@ struct NetworkTracker<T: CdpTransport> {
 }
 
 impl<T: CdpTransport + 'static> NetworkTracker<T> {
-  fn new(transport: Arc<T>, session_id: Option<Arc<str>>) -> Self {
+  fn new(transport: Weak<T>, session_id: Option<Arc<str>>) -> Self {
     Self {
       transport,
       session_id,
@@ -4022,14 +4053,17 @@ impl<T: CdpTransport + 'static> NetworkTracker<T> {
   }
 
   fn make_response_body_fn(self: &Arc<Self>, request_id: &str) -> BodyFn {
-    let transport = self.transport.clone();
+    let weak = self.transport.clone();
     let session_id = self.session_id.clone();
     let request_id = request_id.to_string();
     Arc::new(move || {
-      let transport = transport.clone();
+      let weak = weak.clone();
       let session_id = session_id.clone();
       let request_id = request_id.clone();
       Box::pin(async move {
+        let Some(transport) = weak.upgrade() else {
+          return Err(FerriError::backend("CDP transport dropped (page or browser closed)"));
+        };
         let resp = transport
           .send_command(
             session_id.as_deref(),
