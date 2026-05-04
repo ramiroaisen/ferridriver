@@ -5,7 +5,7 @@
  *   import { test, expect } from '@ferridriver/test';
  *
  *   test('basic', async ({ page }) => {
- *     await page.goto('https://example.com');
+ *     await page.goto('https://example.org');
  *     await expect(page).toHaveTitle('Example Domain');
  *   });
  *

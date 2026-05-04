@@ -23,20 +23,20 @@ Data-driven testing is one of the most common patterns: run the same test logic 
 ### Rust API (ferridriver-test-macros)
 - Macro: `#[ferritest_each(data = [(1, "a"), (2, "b")])]`
   ```rust
-  #[ferritest_each(data = [("admin", "admin@example.com"), ("guest", "guest@example.com")])]
+  #[ferritest_each(data = [("admin", "admin@example.org"), ("guest", "guest@example.org")])]
   async fn login(pool: FixturePool, role: &str, email: &str) {
     // test body using role and email
   }
   ```
 - The proc macro expands into N `inventory::submit!` calls, one per data row.
-- Name format: `login (admin, admin@example.com)`, `login (guest, guest@example.com)`.
+- Name format: `login (admin, admin@example.org)`, `login (guest, guest@example.org)`.
 
 ### NAPI + TypeScript (ferridriver-node, packages/ferridriver-test)
 - `test.each()` API:
   ```ts
   test.each([
-    { role: 'admin', email: 'admin@example.com' },
-    { role: 'guest', email: 'guest@example.com' },
+    { role: 'admin', email: 'admin@example.org' },
+    { role: 'guest', email: 'guest@example.org' },
   ])('login as $role', async ({ page }, { role, email }) => {
     // ...
   });
@@ -46,8 +46,8 @@ Data-driven testing is one of the most common patterns: run the same test logic 
   ```ts
   test.each`
     role       | email
-    ${'admin'} | ${'admin@example.com'}
-    ${'guest'} | ${'guest@example.com'}
+    ${'admin'} | ${'admin@example.org'}
+    ${'guest'} | ${'guest@example.org'}
   `('login as $role', async ({ page }, { role, email }) => { ... });
   ```
 - Implementation: `test.each()` returns a function that registers N tests in the registry.

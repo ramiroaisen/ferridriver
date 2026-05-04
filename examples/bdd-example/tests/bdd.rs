@@ -25,7 +25,7 @@ use ferridriver_bdd::prelude::*;
 async fn navigate_example(world: &mut BrowserWorld) {
   world
     .page()
-    .goto("https://example.com", None)
+    .goto("https://example.org", None)
     .await
     .map_err(|e| step_err!("{e}"))?;
 }

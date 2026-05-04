@@ -2,7 +2,7 @@ Feature: Pending Steps
   Undefined steps are treated as pending in non-strict mode.
 
   Scenario: Undefined step becomes pending
-    Given I navigate to "https://example.com"
+    Given I navigate to "https://example.org"
     When I do something that is not yet implemented
     Then the page title should contain "Example"
 

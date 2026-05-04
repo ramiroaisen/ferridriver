@@ -73,18 +73,18 @@
 //! #[ferritest]
 //! async fn basic_navigation(ctx: TestContext) {
 //!     let page = ctx.page().await?;
-//!     page.goto("https://example.com", None).await?;
+//!     page.goto("https://example.org", None).await?;
 //!     expect(&*page).to_have_title("Example Domain").await?;
 //! }
 //!
 //! #[ferritest(retries = 2, tag = "smoke")]
 //! async fn login_test(ctx: TestContext) {
 //!     let page = ctx.page().await?;
-//!     page.goto("https://app.example.com/login", None).await?;
-//!     page.locator("#email").fill("user@example.com").await?;
+//!     page.goto("https://app.example.org/login", None).await?;
+//!     page.locator("#email").fill("user@example.org").await?;
 //!     page.locator("#password").fill("password").await?;
 //!     page.locator("button[type=submit]").click().await?;
-//!     expect(&*page).to_have_url("https://app.example.com/dashboard").await?;
+//!     expect(&*page).to_have_url("https://app.example.org/dashboard").await?;
 //! }
 //! ```
 
@@ -143,7 +143,7 @@ pub use inventory;
 ///
 /// #[ferritest]
 /// async fn my_test(page: Page) {
-///     page.goto("https://example.com", None).await.unwrap();
+///     page.goto("https://example.org", None).await.unwrap();
 /// }
 ///
 /// ferridriver_test::main!();

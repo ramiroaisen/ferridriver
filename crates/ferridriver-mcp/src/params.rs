@@ -379,7 +379,7 @@ pub struct CookiesParams {
   pub name: Option<String>,
   #[schemars(description = "Cookie value (required for set).")]
   pub value: Option<String>,
-  #[schemars(description = "Cookie domain (e.g. '.example.com'). Required for set. Used to scope delete.")]
+  #[schemars(description = "Cookie domain (e.g. '.example.org'). Required for set. Used to scope delete.")]
   pub domain: Option<String>,
   #[schemars(description = "Cookie path. Defaults to '/'.")]
   pub path: Option<String>,

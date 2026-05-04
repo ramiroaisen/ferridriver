@@ -65,8 +65,8 @@ use ferridriver_test::prelude::*;
 #[ferridriver_test::fixture(scope = "test")]
 async fn authed_page(ctx: TestContext) -> Arc<Page> {
     let page = ctx.page().await.unwrap();
-    page.goto("https://app.example.com/login", None).await.unwrap();
-    page.locator("#email").fill("user@example.com").await.unwrap();
+    page.goto("https://app.example.org/login", None).await.unwrap();
+    page.locator("#email").fill("user@example.org").await.unwrap();
     page.locator("button[type=submit]").click().await.unwrap();
     page.wait_for_url("/dashboard").await.unwrap();
     page

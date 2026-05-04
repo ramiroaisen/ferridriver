@@ -8,7 +8,7 @@
 //!
 //! ```ignore
 //! let ctx = APIRequestContext::new(RequestContextOptions {
-//!     base_url: Some("https://api.example.com".into()),
+//!     base_url: Some("https://api.example.org".into()),
 //!     ..Default::default()
 //! });
 //! let resp = ctx.get("/users", None).await?;
@@ -21,7 +21,7 @@ use std::time::Duration;
 /// Options for creating an `APIRequestContext`.
 #[derive(Debug, Clone, Default)]
 pub struct RequestContextOptions {
-  /// Base URL prepended to relative paths (e.g., `"https://api.example.com"`).
+  /// Base URL prepended to relative paths (e.g., `"https://api.example.org"`).
   pub base_url: Option<String>,
   /// Default headers sent with every request.
   pub extra_http_headers: Vec<(String, String)>,

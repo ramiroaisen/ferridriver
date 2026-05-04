@@ -252,7 +252,7 @@ mod tests {
   #[test]
   fn compile_simple_string() {
     let expr = compile("I navigate to {string}").unwrap();
-    assert!(expr.regex.is_match("I navigate to \"https://example.com\""));
+    assert!(expr.regex.is_match("I navigate to \"https://example.org\""));
     assert_eq!(expr.param_types, vec![ParamType::String]);
   }
 
@@ -281,19 +281,19 @@ mod tests {
   #[test]
   fn extract_string_param() {
     let expr = compile("I navigate to {string}").unwrap();
-    let caps = expr.regex.captures("I navigate to \"https://example.com\"").unwrap();
+    let caps = expr.regex.captures("I navigate to \"https://example.org\"").unwrap();
     let params = extract_params(&caps, &expr.param_types, &expr.param_infos).unwrap();
     assert_eq!(params.len(), 1);
-    assert_eq!(params[0], StepParam::String("https://example.com".to_string()));
+    assert_eq!(params[0], StepParam::String("https://example.org".to_string()));
   }
 
   #[test]
   fn extract_single_quoted_string_param() {
     let expr = compile("I navigate to {string}").unwrap();
-    let caps = expr.regex.captures("I navigate to 'https://example.com'").unwrap();
+    let caps = expr.regex.captures("I navigate to 'https://example.org'").unwrap();
     let params = extract_params(&caps, &expr.param_types, &expr.param_infos).unwrap();
     assert_eq!(params.len(), 1);
-    assert_eq!(params[0], StepParam::String("https://example.com".to_string()));
+    assert_eq!(params[0], StepParam::String("https://example.org".to_string()));
   }
 
   #[test]

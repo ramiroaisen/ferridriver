@@ -100,8 +100,8 @@ async fn main() -> Result<(), String> {
     let browser = Browser::launch(LaunchOptions::default()).await?;
     let page = browser.page().await?;
 
-    page.goto("https://example.com", None).await?;
-    page.locator("#email").fill("test@example.com").await?;
+    page.goto("https://example.org", None).await?;
+    page.locator("#email").fill("test@example.org").await?;
     page.locator("button[type=submit]").click().await?;
     page.wait_for_url("/dashboard").await?;
 
@@ -119,7 +119,7 @@ async fn main() -> Result<(), String> {
 import { Browser } from '@ferridriver/node';
 
 const browser = await Browser.launch();
-const page = await browser.newPageWithUrl('https://example.com');
+const page = await browser.newPageWithUrl('https://example.org');
 await page.locator('h1').click();
 console.log(await page.locator('h1').textContent());
 await browser.close();
@@ -136,8 +136,8 @@ use ferridriver_test::prelude::*;
 
 #[ferritest]
 async fn login_flow(page: Page) -> Result<(), TestFailure> {
-    page.goto("https://app.example.com/login", None).await?;
-    page.locator("#email").fill("user@example.com").await?;
+    page.goto("https://app.example.org/login", None).await?;
+    page.locator("#email").fill("user@example.org").await?;
     page.locator("button[type=submit]").click().await?;
     expect(&page).to_have_url("dashboard").await?;
     Ok(())
@@ -150,8 +150,8 @@ async fn login_flow(page: Page) -> Result<(), TestFailure> {
 import { test, expect } from '@ferridriver/test';
 
 test('login flow', async ({ page }) => {
-  await page.goto('https://app.example.com/login');
-  await page.locator('#email').fill('user@example.com');
+  await page.goto('https://app.example.org/login');
+  await page.locator('#email').fill('user@example.org');
   await page.locator('button[type=submit]').click();
   await expect(page).toHaveURL(/dashboard/);
 });
@@ -189,7 +189,7 @@ use ferridriver_test::prelude::*;
 
 #[ferritest]
 async fn loads_homepage(page: Page) -> Result<(), TestFailure> {
-    page.goto("https://example.com", None).await?;
+    page.goto("https://example.org", None).await?;
     expect(&page).to_have_title("Example Domain").await?;
     Ok(())
 }
@@ -426,8 +426,8 @@ See [`site/docs/mcp/tools.md`](./site/docs/mcp/tools.md) for the full script API
 ```gherkin
 Feature: Login
   Scenario: Successful login
-    Given I navigate to "https://app.example.com/login"
-    When I fill "label=Email" with "user@example.com"
+    Given I navigate to "https://app.example.org/login"
+    When I fill "label=Email" with "user@example.org"
     And I fill "label=Password" with "secret"
     And I click "role=button[name=Sign in]"
     Then the URL should contain "/dashboard"

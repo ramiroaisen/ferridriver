@@ -19,7 +19,7 @@ If any check fails, the Rust side yields for 50 ms and retries. After 5 seconds 
 
 ```rust
 // No manual wait needed — fill() waits for #email to be attached, visible, enabled.
-page.locator("#email").fill("user@example.com").await?;
+page.locator("#email").fill("user@example.org").await?;
 ```
 
 The poll loop is in Rust, not JavaScript (`tokio::time::sleep`). That means other pages in the same worker keep making progress while one element is waiting — there's no blocking JS promise holding up the event loop.

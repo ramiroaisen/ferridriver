@@ -1082,7 +1082,7 @@ const root = defineCommand({
       '  ferridriver-test test tests/features/*.feature --tags "@smoke"  # BDD with tag filter\n' +
       '  ferridriver-test test tests/ --steps steps/              # Mixed E2E + BDD\n' +
       '  ferridriver-test ct --framework react                    # Component tests with React\n' +
-      '  ferridriver-test codegen https://example.com             # Record interactions as test code\n' +
+      '  ferridriver-test codegen https://example.org             # Record interactions as test code\n' +
       '  ferridriver-test install --with-deps                     # Install Chromium + system deps',
   },
   subCommands: {

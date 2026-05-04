@@ -55,7 +55,7 @@ Browser automation libraries need performance measurement: how fast does a page 
   #[ferribench(iterations = 50, warmup = 3)]
   async fn page_load(pool: FixturePool) {
     let page = pool.get::<Page>().await;
-    page.goto("https://example.com").await.unwrap();
+    page.goto("https://example.org").await.unwrap();
   }
   ```
 - Collected via `inventory` like tests.
@@ -65,7 +65,7 @@ Browser automation libraries need performance measurement: how fast does a page 
   ```ts
   import { bench } from '@ferridriver/test';
   bench('page load', async ({ page }) => {
-    await page.goto('https://example.com');
+    await page.goto('https://example.org');
   }, { iterations: 50 });
   ```
 - Results printed to terminal and optionally saved to JSON.

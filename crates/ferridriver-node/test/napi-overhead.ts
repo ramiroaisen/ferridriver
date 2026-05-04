@@ -21,7 +21,7 @@ async function timeMs(fn: () => Promise<any>): Promise<number> {
 
 async function main() {
   const browser = await chromium().launch();
-  const page = await browser.newPageWithUrl("https://example.com");
+  const page = await browser.newPageWithUrl("https://example.org");
 
   // 1. Pure JS evaluate (minimal NAPI overhead - just string in, value out)
   const evalSimple = await timeMs(() => page.evaluate("1+1"));
@@ -50,9 +50,9 @@ async function main() {
   console.log(`screenshot(full page)    ${screenshot.toFixed(3)}ms`);
 
   // 6. Cookies (tests object array serialization)
-  await page.setCookie({ name: "a", value: "1", domain: ".example.com", path: "/", secure: false, httpOnly: false });
-  await page.setCookie({ name: "b", value: "2", domain: ".example.com", path: "/", secure: false, httpOnly: false });
-  await page.setCookie({ name: "c", value: "3", domain: ".example.com", path: "/", secure: false, httpOnly: false });
+  await page.setCookie({ name: "a", value: "1", domain: ".example.org", path: "/", secure: false, httpOnly: false });
+  await page.setCookie({ name: "b", value: "2", domain: ".example.org", path: "/", secure: false, httpOnly: false });
+  await page.setCookie({ name: "c", value: "3", domain: ".example.org", path: "/", secure: false, httpOnly: false });
   const getCookies = await timeMs(() => page.cookies());
   console.log(`cookies() (3 cookies)    ${getCookies.toFixed(3)}ms`);
 

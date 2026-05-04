@@ -130,7 +130,7 @@ expect(&page.locator(".slow"))
 
 ```rust
 // Navigation
-page.goto("https://example.com", None).await?;
+page.goto("https://example.org", None).await?;
 
 // Locators
 page.locator("css selector").click().await?;

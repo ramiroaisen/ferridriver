@@ -76,7 +76,7 @@ step!(Fill {
     category: StepCategory::Interaction,
     pattern: r"^I fill (.+) with (.+)$",
     description: "Clear and type into an input",
-    example: "When I fill \"#email\" with \"test@example.com\"",
+    example: "When I fill \"#email\" with \"test@example.org\"",
     execute(page, caps, _table, _vars) {
         let sel = q(&caps[1]);
         let val = q(&caps[2]);

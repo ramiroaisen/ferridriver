@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let browser = Browser::launch(LaunchOptions::default()).await?;
     let page = browser.page().await?;
 
-    page.goto("https://example.com", None).await?;
+    page.goto("https://example.org", None).await?;
     let title = page.title().await?;
 
     page.locator("#search").fill("rust").await?;

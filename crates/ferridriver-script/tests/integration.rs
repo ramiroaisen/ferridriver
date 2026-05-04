@@ -217,7 +217,7 @@ async fn page_bindings_expose_goto_options_and_close_options() {
   // verify the call completes).
   let html = data_url("<title>opts</title><body>ready</body>");
   let script = format!(
-    "await page.goto({html:?}, {{ waitUntil: 'domcontentloaded', referer: 'https://ref.example.com/', timeout: 10000 }}); return await page.title();",
+    "await page.goto({html:?}, {{ waitUntil: 'domcontentloaded', referer: 'https://ref.example.org/', timeout: 10000 }}); return await page.title();",
     html = html
   );
   let r = h.engine.run(&script, &[], RunOptions::default(), h.ctx.clone()).await;

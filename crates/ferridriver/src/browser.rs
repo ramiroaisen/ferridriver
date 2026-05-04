@@ -11,7 +11,7 @@
 //! use ferridriver::{chromium, options::LaunchOptions};
 //!
 //! let browser = chromium().launch(LaunchOptions::default()).await?;
-//! let page = browser.new_page_with_url("https://example.com").await?;
+//! let page = browser.new_page_with_url("https://example.org").await?;
 //! ```
 
 use crate::context::ContextRef;

@@ -300,7 +300,7 @@ async function runAllTests(client: Client, backend: string): Promise<Result[]> {
 
   // ── Storage ──
 
-  await call(client, "navigate", { url: "https://example.com" });
+  await call(client, "navigate", { url: "https://example.org" });
 
   await t("storage_set_get", async () => {
     await call(client, "storage", { action: "set", key: "bench_key", value: "bench_val" });
@@ -311,7 +311,7 @@ async function runAllTests(client: Client, backend: string): Promise<Result[]> {
   // ── Cookies ──
 
   await t("cookies_set_get", async () => {
-    await call(client, "cookies", { action: "set", name: "bench", value: "cookie", domain: "example.com" });
+    await call(client, "cookies", { action: "set", name: "bench", value: "cookie", domain: "example.org" });
     const r = await call(client, "cookies", { action: "get" });
     assert(!r.isError, `cookies: ${text(r)}`);
   });

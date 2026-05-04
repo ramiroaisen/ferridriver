@@ -75,7 +75,7 @@ Playwright's `codegen` command opens a headed browser and records user interacti
 | `crates/ferridriver-cli/src/main.rs` | Modify — handle `Codegen` command |
 
 ## Verification
-- Manual: `ferridriver codegen https://example.com` — verify browser opens, actions are recorded.
+- Manual: `ferridriver codegen https://example.org` — verify browser opens, actions are recorded.
 - Manual: click elements, fill inputs, navigate — verify generated Rust code compiles.
 - Manual: switch to TypeScript output — verify valid TS test.
 - Manual: switch to Gherkin output — verify valid `.feature` file.

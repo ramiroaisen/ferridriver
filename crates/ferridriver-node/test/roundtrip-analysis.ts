@@ -16,13 +16,13 @@ async function med(fn: () => Promise<any>): Promise<number> {
 
 async function bench(backend: string) {
   const b = await launchForBackend(backend);
-  const p = await b.newPageWithUrl("https://example.com");
+  const p = await b.newPageWithUrl("https://example.org");
   
   // Single CDP call baseline
   const evalBase = await med(() => p.evaluate("1"));
   
   // goto breakdown - this is the biggest gap vs Playwright
-  const goto = await med(() => p.goto("https://example.com"));
+  const goto = await med(() => p.goto("https://example.org"));
   
   // click breakdown
   await p.setContent('<button id="b">x</button>');

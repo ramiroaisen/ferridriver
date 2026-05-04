@@ -12,7 +12,7 @@ step!(NavigateNoWait {
     category: StepCategory::Navigation,
     pattern: r"^I navigate to (.+) without waiting$",
     description: "Navigate without waiting for page load",
-    example: "When I navigate to \"https://example.com\" without waiting",
+    example: "When I navigate to \"https://example.org\" without waiting",
     execute(page, caps, _table, _vars) {
         let url = q(&caps[1]);
         let opts = crate::options::GotoOptions {
@@ -29,7 +29,7 @@ step!(Navigate {
     category: StepCategory::Navigation,
     pattern: r"^I navigate to (.+)$",
     description: "Navigate to URL and wait for load",
-    example: "Given I navigate to \"https://example.com\"",
+    example: "Given I navigate to \"https://example.org\"",
     execute(page, caps, _table, _vars) {
         let url = q(&caps[1]);
         page.goto(&url, None).await.map_err(|e| format!("Navigate: {e}"))?;

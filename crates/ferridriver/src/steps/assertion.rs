@@ -88,7 +88,7 @@ step!(UrlExact {
     category: StepCategory::Assertion,
     pattern: r"^the URL should be (.+)$",
     description: "Assert exact URL",
-    example: "Then the URL should be \"https://example.com/\"",
+    example: "Then the URL should be \"https://example.org/\"",
     execute(page, caps, _table, _vars) {
         let expected = q(&caps[1]);
         let url = page.url().await.unwrap_or_default();
@@ -220,7 +220,7 @@ step!(ValueExact {
     category: StepCategory::Assertion,
     pattern: r"^(.+) should have value (.+)$",
     description: "Assert input has value",
-    example: "Then \"#email\" should have value \"test@example.com\"",
+    example: "Then \"#email\" should have value \"test@example.org\"",
     execute(page, caps, _table, _vars) {
         let sel = q(&caps[1]);
         let expected = q(&caps[2]);

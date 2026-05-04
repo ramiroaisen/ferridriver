@@ -14,7 +14,7 @@ async fn fresh_world(world: &mut BrowserWorld) {
 
 #[before(scenario, tags = "@auth", order = 10)]
 async fn login(world: &mut BrowserWorld) {
-    world.page().goto("https://app.example.com/login", None).await.unwrap();
+    world.page().goto("https://app.example.org/login", None).await.unwrap();
     // ... sign in
 }
 

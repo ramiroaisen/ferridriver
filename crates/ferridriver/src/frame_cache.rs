@@ -174,9 +174,9 @@ mod tests {
     let mut c = FrameCache::default();
     c.seed(vec![mk("root", None, "", "about:blank")]);
     c.detach("root");
-    c.navigated(mk("root", None, "", "https://example.com"));
+    c.navigated(mk("root", None, "", "https://example.org"));
     assert!(c.by_id.get("root").unwrap().detached);
-    assert_eq!(c.by_id.get("root").unwrap().info.url, "https://example.com");
+    assert_eq!(c.by_id.get("root").unwrap().info.url, "https://example.org");
   }
 
   #[test]

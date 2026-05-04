@@ -19,8 +19,8 @@ The install pulls in `@ferridriver/node` (the native addon) via `optionalDepende
 import { test, expect } from '@ferridriver/test';
 
 test('login flow', async ({ page }) => {
-  await page.goto('https://app.example.com/login');
-  await page.locator('#email').fill('user@example.com');
+  await page.goto('https://app.example.org/login');
+  await page.locator('#email').fill('user@example.org');
   await page.locator('button[type=submit]').click();
   await expect(page).toHaveURL(/dashboard/);
 });

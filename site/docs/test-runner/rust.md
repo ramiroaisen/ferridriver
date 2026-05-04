@@ -46,17 +46,17 @@ use ferridriver_test::prelude::*;
 #[ferritest]
 async fn loads_homepage(ctx: TestContext) {
     let page = ctx.page().await?;
-    page.goto("https://example.com", None).await?;
+    page.goto("https://example.org", None).await?;
     expect(&page).to_have_title("Example Domain").await?;
 }
 
 #[ferritest(retries = 2, tag = "smoke")]
 async fn login_flow(ctx: TestContext) {
     let page = ctx.page().await?;
-    page.goto("https://app.example.com/login", None).await?;
-    page.locator("#email").fill("user@example.com").await?;
+    page.goto("https://app.example.org/login", None).await?;
+    page.locator("#email").fill("user@example.org").await?;
     page.locator("button[type=submit]").click().await?;
-    expect(&page).to_have_url("https://app.example.com/dashboard").await?;
+    expect(&page).to_have_url("https://app.example.org/dashboard").await?;
 }
 ```
 
@@ -93,7 +93,7 @@ Use `#[ferritest_each(data = [ ... ])]` with a `(ctx: TestContext, input: T)` si
 
 ```rust
 #[ferritest_each(data = [
-    ("https://example.com", "Example Domain"),
+    ("https://example.org", "Example Domain"),
     ("https://rust-lang.org", "Rust Programming Language"),
 ])]
 async fn title_check(ctx: TestContext, case: (&str, &str)) {

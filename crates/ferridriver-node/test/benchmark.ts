@@ -59,7 +59,7 @@ type BenchFn = (page: any, label: string) => Promise<number>;
 // "reset" ops re-set the HTML before each iteration to keep state clean.
 const ops: { name: string; reset?: boolean; fd: (p: any) => Promise<void>; pw: (p: any) => Promise<void> }[] = [
   // Navigation
-  { name: "goto (network)", fd: p => p.goto("https://example.com"), pw: p => p.goto("https://example.com") },
+  { name: "goto (network)", fd: p => p.goto("https://example.org"), pw: p => p.goto("https://example.org") },
   { name: "setContent", fd: p => p.setContent(HTML), pw: p => p.setContent(HTML) },
   // Content extraction
   { name: "title()", fd: p => p.title(), pw: p => p.title() },
@@ -99,7 +99,7 @@ async function main() {
   for (const backend of FD_BACKENDS) {
     const browser = await fdLaunchForBackend(backend);
     const page = await browser.newPage();
-    await page.goto("https://example.com"); // initial load
+    await page.goto("https://example.org"); // initial load
     await page.setContent(HTML);
     fdBrowsers.push({ backend, browser, page });
     console.log(`  ${backend} ready`);

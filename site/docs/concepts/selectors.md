@@ -105,7 +105,7 @@ The `get_by_*` helpers build the right selector for you and are the preferred AP
 page.get_by_role("button", &RoleOptions { name: Some("Save".into()), ..Default::default() });
 page.get_by_text("Hello", &TextOptions::default());
 page.get_by_label("Email", &TextOptions::default());
-page.get_by_placeholder("you@example.com", &TextOptions::default());
+page.get_by_placeholder("you@example.org", &TextOptions::default());
 page.get_by_alt_text("Logo", &TextOptions::default());
 page.get_by_title("Settings", &TextOptions::default());
 page.get_by_test_id("login-form");
@@ -117,7 +117,7 @@ page.get_by_test_id("login-form");
 page.getByRole('button', { name: 'Save' });
 page.getByText('Hello');
 page.getByLabel('Email');
-page.getByPlaceholder('you@example.com');
+page.getByPlaceholder('you@example.org');
 page.getByAltText('Logo');
 page.getByTitle('Settings');
 page.getByTestId('login-form');

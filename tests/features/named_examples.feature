@@ -6,9 +6,9 @@ Feature: Named Examples
 
     Examples: Popular sites
       | url                    | title   |
-      | https://example.com    | Example |
+      | https://example.org    | Example |
       | https://www.google.com | Google  |
 
     Examples: Example domain
       | url                 | title   |
-      | https://example.com | Example |
+      | https://example.org | Example |

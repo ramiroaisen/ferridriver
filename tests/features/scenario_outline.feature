@@ -7,7 +7,7 @@ Feature: Scenario Outline
 
     Examples:
       | url                     | expected_title |
-      | https://example.com     | Example        |
+      | https://example.org     | Example        |
       | https://www.google.com  | Google         |
 
   Scenario Outline: Check element visibility on different pages
@@ -16,6 +16,6 @@ Feature: Scenario Outline
 
     Examples:
       | url                 | selector |
-      | https://example.com | h1       |
-      | https://example.com | p        |
-      | https://example.com | body     |
+      | https://example.org | h1       |
+      | https://example.org | p        |
+      | https://example.org | body     |

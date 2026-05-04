@@ -2,7 +2,7 @@ Feature: Interaction
   Browser interaction operations: click, fill, type, hover, focus.
 
   Scenario: Click a link
-    Given I navigate to "https://example.com"
+    Given I navigate to "https://example.org"
     When I click "a"
     Then the URL should contain "iana.org"
 
@@ -12,6 +12,6 @@ Feature: Interaction
     Then "textarea[name=q]" should have value "ferridriver"
 
   Scenario: Check element visibility
-    Given I navigate to "https://example.com"
+    Given I navigate to "https://example.org"
     Then "h1" should be visible
     And "h1" should contain text "Example Domain"

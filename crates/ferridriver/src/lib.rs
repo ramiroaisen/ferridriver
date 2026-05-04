@@ -11,7 +11,7 @@
 //! use ferridriver::options::{LaunchOptions, RoleOptions};
 //!
 //! let browser = chromium().launch(LaunchOptions::default()).await?;
-//! let page = browser.new_page_with_url("https://example.com").await?;
+//! let page = browser.new_page_with_url("https://example.org").await?;
 //!
 //! // Playwright-style locators
 //! page.get_by_role("link", RoleOptions { name: Some("More".into()), ..Default::default() })

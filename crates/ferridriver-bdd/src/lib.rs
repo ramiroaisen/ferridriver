@@ -52,7 +52,7 @@
 //! // Custom step definitions -- auto-registered via inventory
 //! #[given("I am logged in as {string}")]
 //! async fn login(world: &mut BrowserWorld, username: String) {
-//!     world.page().goto("https://app.example.com/login", None).await.map_err(|e| step_err!("{e}"))?;
+//!     world.page().goto("https://app.example.org/login", None).await.map_err(|e| step_err!("{e}"))?;
 //!     world.page().locator("#email").fill(&username).await.map_err(|e| step_err!("{e}"))?;
 //!     world.page().locator("#password").fill("secret").await.map_err(|e| step_err!("{e}"))?;
 //!     world.page().locator("button[type=submit]").click().await.map_err(|e| step_err!("{e}"))?;
