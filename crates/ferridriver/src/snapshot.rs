@@ -9,17 +9,7 @@ use crate::backend::{AnyPage, AxNodeData};
 use rustc_hash::FxHashMap as HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-static REF_COUNTER: AtomicUsize = AtomicUsize::new(1);
-
-pub fn reset_refs() {
-  REF_COUNTER.store(1, Ordering::SeqCst);
-}
-
-fn next_ref() -> String {
-  format!("e{}", REF_COUNTER.fetch_add(1, Ordering::SeqCst))
-}
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const NOISE_ROLES: &[&str] = &[
   "none",
@@ -144,16 +134,36 @@ fn node_fingerprint(node: &AxNodeData) -> u64 {
 }
 
 /// Incremental tracker state — stores fingerprints from the previous snapshot.
-#[derive(Debug, Clone, Default)]
 pub struct SnapshotTracker {
   /// `track_key` -> Vec of (`node_id`, fingerprint) from previous call.
   tracks: HashMap<String, Vec<(String, u64)>>,
+  /// Monotonic ref labels (`e1`, `e2`, …) for this tracker instance.
+  next_ref: AtomicU64,
+}
+
+impl Default for SnapshotTracker {
+  fn default() -> Self {
+    Self {
+      tracks: HashMap::default(),
+      next_ref: AtomicU64::new(1),
+    }
+  }
 }
 
 impl SnapshotTracker {
   #[must_use]
   pub fn new() -> Self {
     Self::default()
+  }
+
+  /// Reset ref id allocation to `e1` for the next snapshot render pass.
+  pub fn reset_ref_sequence(&self) {
+    self.next_ref.store(1, Ordering::Relaxed);
+  }
+
+  #[must_use]
+  pub fn ref_sequence(&self) -> &AtomicU64 {
+    &self.next_ref
   }
 
   /// Compute incremental diff. Returns the set of node IDs that are new or changed.
@@ -192,6 +202,13 @@ impl SnapshotTracker {
       None
     };
 
+    const MAX_TRACK_KEYS: usize = 128;
+    if self.tracks.len() >= MAX_TRACK_KEYS && !self.tracks.contains_key(track_key) {
+      if let Some(stale) = self.tracks.keys().next().cloned() {
+        self.tracks.remove(&stale);
+      }
+    }
+
     // Store current fingerprints
     self.tracks.insert(track_key.to_string(), current);
 
@@ -204,7 +221,8 @@ impl SnapshotTracker {
 /// Build a compact snapshot. Returns (text, `ref_map`).
 #[must_use]
 pub fn build_snapshot(nodes: &[AxNodeData]) -> (String, HashMap<String, i64>) {
-  build_snapshot_filtered(nodes, None)
+  let ref_seq = AtomicU64::new(1);
+  build_snapshot_filtered(nodes, None, &ref_seq)
 }
 
 /// Mutable context passed through snapshot tree traversal to reduce argument count.
@@ -216,6 +234,7 @@ struct SnapshotCtx<'a> {
   truncated: bool,
   filter_ids: Option<&'a std::collections::HashSet<String>>,
   relevant_nodes: Option<std::collections::HashSet<&'a str>>,
+  ref_seq: &'a AtomicU64,
 }
 
 fn get_role(node: &AxNodeData) -> &str {
@@ -236,6 +255,7 @@ fn get_desc(node: &AxNodeData) -> &str {
 fn build_snapshot_filtered(
   nodes: &[AxNodeData],
   filter_ids: Option<&std::collections::HashSet<String>>,
+  ref_seq: &AtomicU64,
 ) -> (String, HashMap<String, i64>) {
   let mut children_map: HashMap<&str, Vec<usize>> = HashMap::default();
   for (i, node) in nodes.iter().enumerate() {
@@ -284,6 +304,7 @@ fn build_snapshot_filtered(
     truncated: false,
     filter_ids,
     relevant_nodes,
+    ref_seq,
   };
 
   for root_idx in roots {
@@ -350,7 +371,7 @@ fn format_tree(ctx: &mut SnapshotCtx<'_>, idx: usize, depth: usize) {
   let indent = "  ".repeat(depth);
 
   let ref_str = if needs_ref(role) || is_interactive(role) {
-    let r = next_ref();
+    let r = format!("e{}", ctx.ref_seq.fetch_add(1, Ordering::Relaxed));
     if let Some(bid) = node.backend_dom_node_id {
       ctx.ref_map.insert(r.clone(), bid);
     }
@@ -570,18 +591,18 @@ pub async fn build_snapshot_for_ai(
   }
   header.push_str("\n### Snapshot\n");
 
-  reset_refs();
+  tracker.reset_ref_sequence();
 
   // Build full snapshot
-  let (snapshot_text, ref_map) = build_snapshot(&tree);
+  let (snapshot_text, ref_map) = build_snapshot_filtered(&tree, None, tracker.ref_sequence());
   let full = format!("{header}{snapshot_text}");
 
   // Incremental tracking
   let incremental = if let Some(track_key) = &opts.track {
     if let Some(changed_ids) = tracker.compute_diff(track_key, &tree) {
       // Re-render with only changed nodes (plus ancestor context)
-      reset_refs();
-      let (inc_text, _) = build_snapshot_filtered(&tree, Some(&changed_ids));
+      tracker.reset_ref_sequence();
+      let (inc_text, _) = build_snapshot_filtered(&tree, Some(&changed_ids), tracker.ref_sequence());
       if inc_text.is_empty() { None } else { Some(inc_text) }
     } else {
       None

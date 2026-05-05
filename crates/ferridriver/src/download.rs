@@ -366,6 +366,9 @@ pub struct DownloadHandlerId(pub u64);
 /// `false` to pass.
 pub type DownloadHandlerFn = Arc<dyn Fn(&Download) -> bool + Send + Sync>;
 
+/// Cap for in-flight download rows when progress events never arrive.
+const DOWNLOAD_BY_GUID_CAP: usize = 4096;
+
 struct DownloadHandlerEntry {
   id: u64,
   handler: DownloadHandlerFn,
@@ -433,6 +436,10 @@ impl DownloadManager {
   pub fn did_open(&self, download: &Download) {
     if let Ok(mut by_guid) = self.inner.by_guid.lock() {
       by_guid.push(download.clone());
+      if by_guid.len() > DOWNLOAD_BY_GUID_CAP {
+        let drop = by_guid.len().saturating_sub(DOWNLOAD_BY_GUID_CAP / 2);
+        by_guid.drain(0..drop);
+      }
     }
     let handlers: Vec<DownloadHandlerFn> = match self.inner.handlers.lock() {
       Ok(g) => g.iter().map(|e| Arc::clone(&e.handler)).collect(),

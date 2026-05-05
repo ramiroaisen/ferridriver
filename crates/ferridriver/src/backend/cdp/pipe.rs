@@ -73,7 +73,10 @@ impl PipeTransport {
 
       loop {
         let n = match reader.read(&mut tmp).await {
-          Ok(0) | Err(_) => return,
+          Ok(0) | Err(_) => {
+            dispatcher2.abort_all_outstanding();
+            return;
+          },
           Ok(n) => n,
         };
         rx.extend_from_slice(&tmp[..n]);

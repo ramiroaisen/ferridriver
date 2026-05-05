@@ -16,7 +16,7 @@ use arc_swap::{ArcSwap, ArcSwapOption};
 use rustc_hash::FxHashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use tokio::sync::{Mutex as AsyncMutex, Notify, RwLock};
 
 /// Header map. Lower-case-keyed combined view (matches Playwright's
@@ -159,7 +159,9 @@ pub(crate) struct RequestState {
   post_data: Option<Vec<u8>>,
   provisional_headers: Headers,
   frame_id: Option<String>,
-  redirected_from: Option<Arc<RequestState>>,
+  /// Weak to the prior hop so `redirected_to` on the previous request can
+  /// hold the only strong ref along the chain (no Arc cycle).
+  redirected_from: Option<Weak<RequestState>>,
 
   // Sync-readable mutable fields — `ArcSwap` so Playwright-style sync
   // accessors (`timing()`, `redirectedTo()`, `sizes()` after response)
@@ -181,7 +183,9 @@ pub(crate) struct RequestState {
 
 struct RequestMutState {
   raw_headers: Option<Vec<HeaderEntry>>,
-  response: Option<Arc<ResponseState>>,
+  /// Weak to avoid `RequestState` ↔ `ResponseState` strong Arc cycles;
+  /// [`ResponseState`] keeps the strong [`Arc`] back to this request.
+  response: Option<Weak<ResponseState>>,
   failure: Option<String>,
 }
 
@@ -201,7 +205,7 @@ impl Request {
       post_data: init.post_data,
       provisional_headers: init.headers,
       frame_id: init.frame_id,
-      redirected_from: init.redirected_from.map(|r| r.inner),
+      redirected_from: init.redirected_from.map(|r| Arc::downgrade(&r.inner)),
       timing: ArcSwap::from_pointee(init.timing.unwrap_or_default()),
       sizes: ArcSwap::from_pointee(RequestSizes::default()),
       redirected_to: ArcSwapOption::const_empty(),
@@ -219,7 +223,7 @@ impl Request {
     // off a `redirected_from`, point that prior request's `redirected_to`
     // slot at the new one. `ArcSwapOption::store` is sync — no need for
     // the listener to make a separate `link_redirect_chain().await` call.
-    if let Some(prev) = inner.redirected_from.as_ref() {
+    if let Some(prev) = inner.redirected_from.as_ref().and_then(Weak::upgrade) {
       prev.redirected_to.store(Some(inner.clone()));
     }
 
@@ -380,7 +384,8 @@ impl Request {
       .inner
       .redirected_from
       .as_ref()
-      .map(|r| Request { inner: r.clone() })
+      .and_then(Weak::upgrade)
+      .map(|inner| Request { inner })
   }
 
   /// Sync — Playwright's `Request.redirectedTo(): Request | null`.
@@ -415,8 +420,11 @@ impl Request {
       waiter.as_mut().enable();
       {
         let state = self.inner.state.read().await;
-        if let Some(r) = state.response.clone() {
-          return Ok(Some(Response { inner: r }));
+        if let Some(w) = state.response.as_ref() {
+          match w.upgrade() {
+            Some(r) => return Ok(Some(Response { inner: r })),
+            None => return Ok(None),
+          }
         }
         if state.failure.is_some() {
           return Ok(None);
@@ -435,8 +443,9 @@ impl Request {
       .read()
       .await
       .response
-      .clone()
-      .map(|r| Response { inner: r })
+      .as_ref()
+      .and_then(Weak::upgrade)
+      .map(|inner| Response { inner })
   }
 
   // -- Timing / sizes ------------------------------------------------------
@@ -457,7 +466,7 @@ impl Request {
   /// Returns an error if the request hasn't received a response.
   pub async fn sizes(&self) -> Result<RequestSizes> {
     let state = self.inner.state.read().await;
-    if state.response.is_none() {
+    if state.response.as_ref().and_then(Weak::upgrade).is_none() {
       return Err(FerriError::Other("Unable to fetch sizes for failed request".into()));
     }
     Ok(**self.inner.sizes.load())
@@ -483,7 +492,7 @@ impl Request {
 
   pub async fn set_response(&self, response: &Response) {
     let mut state = self.inner.state.write().await;
-    state.response = Some(response.inner.clone());
+    state.response = Some(Arc::downgrade(&response.inner));
     drop(state);
     self.inner.outcome_notify.notify_waiters();
   }
@@ -508,10 +517,15 @@ impl Request {
       "url": self.inner.url,
       "resourceType": self.inner.resource_type,
       "isNavigationRequest": self.inner.is_navigation_request,
-      "status": state.response.as_ref().map(|r| r.status),
+      "status": state
+        .response
+        .as_ref()
+        .and_then(Weak::upgrade)
+        .map(|r| r.status),
       "mimeType": state
         .response
         .as_ref()
+        .and_then(Weak::upgrade)
         .and_then(|r| r.provisional_headers.get("content-type").cloned()),
       "headers": self.inner.provisional_headers,
       "postData": self.post_data(),

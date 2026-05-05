@@ -32,6 +32,7 @@
 //!   is **dismissed** (so tests don't hang on stray `alert()`).
 
 use std::sync::Arc;
+use std::sync::Weak as StdWeak;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::error::{FerriError, Result};
@@ -108,13 +109,10 @@ pub(crate) struct DialogState {
   /// return an error to match Playwright's assertion semantics.
   handled: AtomicBool,
   responder: DialogResponder,
-  /// Back-reference to the [`DialogManager`] that emitted this
-  /// dialog. Used to notify the manager via
-  /// [`DialogManager::dialog_will_close`] when `accept` / `dismiss`
-  /// runs, so the manager's open-set stays accurate. Optional so
-  /// ad-hoc `Dialog::new` callers (e.g. the `WebKit` placeholder
-  /// responder) don't need a manager reference.
-  manager: Option<DialogManager>,
+  /// Weak back-reference to the manager's inner state so a claimed
+  /// dialog in the open-set cannot form an `Arc` cycle with
+  /// [`DialogManagerState`].
+  manager: Option<StdWeak<DialogManagerState>>,
 }
 
 impl Dialog {
@@ -140,6 +138,7 @@ impl Dialog {
     responder: DialogResponder,
     manager: Option<DialogManager>,
   ) -> Self {
+    let manager = manager.map(|m| Arc::downgrade(&m.inner));
     Self {
       inner: Arc::new(DialogState {
         dialog_type,
@@ -191,8 +190,10 @@ impl Dialog {
   ///   underlying protocol call fails.
   pub async fn accept(&self, prompt_text: Option<String>) -> Result<()> {
     self.mark_handled_or_error()?;
-    if let Some(mgr) = &self.inner.manager {
-      mgr.dialog_will_close(self);
+    if let Some(w) = &self.inner.manager {
+      if let Some(inner) = w.upgrade() {
+        DialogManager { inner }.dialog_will_close(self);
+      }
     }
     (self.inner.responder)(DialogResponse::Accept { prompt_text })
       .await
@@ -206,8 +207,10 @@ impl Dialog {
   /// See [`Self::accept`].
   pub async fn dismiss(&self) -> Result<()> {
     self.mark_handled_or_error()?;
-    if let Some(mgr) = &self.inner.manager {
-      mgr.dialog_will_close(self);
+    if let Some(w) = &self.inner.manager {
+      if let Some(inner) = w.upgrade() {
+        DialogManager { inner }.dialog_will_close(self);
+      }
     }
     (self.inner.responder)(DialogResponse::Dismiss)
       .await

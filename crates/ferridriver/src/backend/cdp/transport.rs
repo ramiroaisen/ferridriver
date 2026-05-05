@@ -115,6 +115,18 @@ impl CdpDispatcher {
     self.event_tx.subscribe()
   }
 
+  /// Fail all in-flight command waiters and clear session-scoped maps
+  /// when the transport reader stops (EOF / disconnect).
+  pub fn abort_all_outstanding(&self) {
+    for (_, tx) in lock_or_recover(&self.pending).drain() {
+      let _ = tx.send(Err("Transport closed".into()));
+    }
+    for (_, w) in lock_or_recover(&self.nav_waiters).drain() {
+      let _ = w.tx.send(Err("Transport closed".into()));
+    }
+    lock_or_recover(&self.lifecycle_trackers).clear();
+  }
+
   /// Build a CDP command as NUL-terminated JSON bytes and register a response receiver.
   pub fn build_command(
     &self,

@@ -25,6 +25,27 @@ pub struct DialogEvent {
   pub action: String,
 }
 
+/// Upper bound per context log stream (console / network / dialog).
+/// When exceeded, the oldest half of entries is dropped in one step.
+pub const CONTEXT_LOG_MAX_ENTRIES: usize = 50_000;
+
+/// Trim `v` in place so a subsequent `push` stays under [`CONTEXT_LOG_MAX_ENTRIES`].
+pub(crate) fn trim_context_log_vec<T>(v: &mut Vec<T>) {
+  if v.len() >= CONTEXT_LOG_MAX_ENTRIES {
+    let drain = v.len().saturating_sub(CONTEXT_LOG_MAX_ENTRIES / 2);
+    if drain > 0 {
+      v.drain(0..drain);
+    }
+  }
+}
+
+/// Append to a bounded context log (async `RwLock` wrapper).
+pub(crate) async fn push_context_log_bounded<T: Send>(log: &Arc<RwLock<Vec<T>>>, item: T) {
+  let mut g = log.write().await;
+  trim_context_log_vec(&mut g);
+  g.push(item);
+}
+
 /// Isolated browser context. Directly holds pages, cookies, and event logs.
 /// This IS the state -- not a wrapper around some other struct.
 /// Stored in `BrowserState`'s context map.

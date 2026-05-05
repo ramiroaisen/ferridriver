@@ -66,6 +66,7 @@ impl WsTransport {
         let Message::Text(text) = msg else { continue };
         dispatcher2.dispatch_message(text.as_bytes());
       }
+      dispatcher2.abort_all_outstanding();
     });
 
     Ok(Self { write_tx, dispatcher })

@@ -3154,7 +3154,7 @@ impl<T: CdpWrap> CdpPage<T> {
           .map_or(0, f64_to_u64_saturating);
 
         let msg = crate::console_message::ConsoleMessage::new(&page, type_str, None, args, location, timestamp);
-        console_log.write().await.push(msg.clone());
+        crate::context::push_context_log_bounded(&console_log, msg.clone()).await;
         emitter.emit(crate::events::PageEvent::Console(msg));
       }
     });
@@ -3369,11 +3369,15 @@ impl<T: CdpWrap> CdpPage<T> {
         // synchronously in the same stack as the CDP event arrival.
         dialog_manager.did_open(dialog);
 
-        dialog_log.write().await.push(crate::state::DialogEvent {
-          dialog_type: dialog_type_str,
-          message,
-          action: "dispatched".to_string(),
-        });
+        crate::context::push_context_log_bounded(
+          &dialog_log,
+          crate::state::DialogEvent {
+            dialog_type: dialog_type_str,
+            message,
+            action: "dispatched".to_string(),
+          },
+        )
+        .await;
       }
     });
   }
@@ -4602,6 +4606,15 @@ impl<T: CdpTransport + 'static> NetworkTracker<T> {
     }
   }
 
+  /// Drop tracker state for a finished request so maps do not grow
+  /// without bound over the page lifetime.
+  async fn remove_request_tracking(&self, request_id: &str) {
+    self.requests.lock().await.remove(request_id);
+    self.responses.lock().await.remove(request_id);
+    self.pending_request_extra.lock().await.remove(request_id);
+    self.pending_response_extra.lock().await.remove(request_id);
+  }
+
   async fn on_request_will_be_sent(
     self: &Arc<Self>,
     params: &serde_json::Value,
@@ -4704,7 +4717,7 @@ impl<T: CdpTransport + 'static> NetworkTracker<T> {
       self.nav_request_slot.set(new_request.clone());
     }
 
-    network_log.write().await.push(new_request.clone());
+    crate::context::push_context_log_bounded(network_log, new_request.clone()).await;
     emitter.emit(crate::events::PageEvent::Request(new_request));
   }
 
@@ -4792,6 +4805,7 @@ impl<T: CdpTransport + 'static> NetworkTracker<T> {
       resp.finish_success().await;
     }
     emitter.emit(crate::events::PageEvent::RequestFinished(req));
+    self.remove_request_tracking(request_id).await;
   }
 
   async fn on_loading_failed(self: &Arc<Self>, params: &serde_json::Value, emitter: &crate::events::EventEmitter) {
@@ -4811,6 +4825,7 @@ impl<T: CdpTransport + 'static> NetworkTracker<T> {
       resp.finish_failure(error_text).await;
     }
     emitter.emit(crate::events::PageEvent::RequestFailed(req));
+    self.remove_request_tracking(request_id).await;
   }
 
   async fn on_websocket_created(self: &Arc<Self>, params: &serde_json::Value, emitter: &crate::events::EventEmitter) {
@@ -4976,12 +4991,15 @@ impl<T: CdpTransport + 'static> NetworkTracker<T> {
   }
 
   fn make_request_raw_headers_fn(self: &Arc<Self>, request_id: &str) -> RawHeadersFn {
-    let tracker = self.clone();
+    let tracker = Arc::downgrade(self);
     let request_id = request_id.to_string();
     Arc::new(move || {
       let tracker = tracker.clone();
       let request_id = request_id.clone();
       Box::pin(async move {
+        let Some(tracker) = tracker.upgrade() else {
+          return Ok(Vec::new());
+        };
         // Fall back to whatever headers the request currently has if no
         // extraInfo arrived (matches Playwright when CDP doesn't fire
         // it, e.g. in Service-Worker-served responses).
@@ -4995,12 +5013,15 @@ impl<T: CdpTransport + 'static> NetworkTracker<T> {
   }
 
   fn make_response_raw_headers_fn(self: &Arc<Self>, request_id: &str) -> RawHeadersFn {
-    let tracker = self.clone();
+    let tracker = Arc::downgrade(self);
     let request_id = request_id.to_string();
     Arc::new(move || {
       let tracker = tracker.clone();
       let request_id = request_id.clone();
       Box::pin(async move {
+        let Some(tracker) = tracker.upgrade() else {
+          return Ok(Vec::new());
+        };
         if let Some(resp) = tracker.responses.lock().await.get(&request_id) {
           return Ok(resp.headers_array().await);
         }

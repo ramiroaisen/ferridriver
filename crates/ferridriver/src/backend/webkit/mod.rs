@@ -1918,6 +1918,7 @@ impl WebKitPage {
                 Some(dialog_manager.clone()),
               );
               dialog_manager.did_open(dialog);
+              crate::context::trim_context_log_vec(&mut dest);
               dest.push(crate::state::DialogEvent {
                 dialog_type: dtype,
                 message,
@@ -2547,6 +2548,7 @@ async fn drain_console_events(
       )
     };
     emitter.emit(crate::events::PageEvent::Console(msg.clone()));
+    crate::context::trim_context_log_vec(&mut dest);
     dest.push(msg);
   }
 }
@@ -2631,6 +2633,7 @@ async fn drain_network_events(
         });
         by_id.insert(id, req.clone());
         emitter.emit(crate::events::PageEvent::Request(req.clone()));
+        crate::context::trim_context_log_vec(&mut dest);
         dest.push(req);
       },
       NetworkEvent::Response {

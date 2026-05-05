@@ -795,6 +795,7 @@ impl BrowserState {
   /// (one CDP call kills the context + all pages, matching Playwright's doClose).
   pub async fn remove_context(&mut self, context: &str) {
     let key = SessionKey::parse(context);
+    let composite = key.to_composite();
     if let Some(inst) = self.instances.get_mut(&*key.instance) {
       if let Ok(ctx) = inst.context(&key.context) {
         if let Some(ref ctx_id) = ctx.cdp_context_id {
@@ -802,6 +803,24 @@ impl BrowserState {
         }
       }
       inst.remove_context(&key.context);
+    }
+    self.drop_context_side_registries(&composite);
+  }
+
+  /// Tear down per-composite-key registries so destroyed contexts do
+  /// not retain emitters and option bags forever.
+  fn drop_context_side_registries(&self, composite: &str) {
+    if let Ok(mut m) = self.context_events.lock() {
+      m.remove(composite);
+    }
+    if let Ok(mut m) = self.record_video.lock() {
+      m.remove(composite);
+    }
+    if let Ok(mut m) = self.context_options.lock() {
+      m.remove(composite);
+    }
+    if let Ok(mut m) = self.storage_state_hydrated.lock() {
+      m.remove(composite);
     }
   }
 

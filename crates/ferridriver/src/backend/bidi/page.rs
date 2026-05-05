@@ -1728,7 +1728,7 @@ impl BidiPage {
               .and_then(serde_json::Value::as_f64)
               .map_or(0, f64_to_u64_saturating);
             let msg = ConsoleMessage::new(&page, type_str, text, args, location, timestamp);
-            console_log.write().await.push(msg.clone());
+            crate::context::push_context_log_bounded(&console_log, msg.clone()).await;
             emitter.emit(PageEvent::Console(msg));
           },
           "network.beforeRequestSent" => {
@@ -1804,11 +1804,15 @@ impl BidiPage {
             // in `backend/cdp/mod.rs` for the full rationale.
             dialog_manager.did_open(dialog);
 
-            dialog_log.write().await.push(DialogEvent {
-              dialog_type: prompt_type_str,
-              message,
-              action: "dispatched".to_string(),
-            });
+            crate::context::push_context_log_bounded(
+              &dialog_log,
+              DialogEvent {
+                dialog_type: prompt_type_str,
+                message,
+                action: "dispatched".to_string(),
+              },
+            )
+            .await;
           },
           "browsingContext.contextDestroyed" => {
             closed.store(true, Ordering::Relaxed);
@@ -2659,6 +2663,11 @@ impl BidiNetworkTracker {
     }
   }
 
+  async fn remove_request_tracking(&self, request_id: &str) {
+    self.requests.lock().await.remove(request_id);
+    self.responses.lock().await.remove(request_id);
+  }
+
   async fn on_before_request_sent(
     self: &Arc<Self>,
     params: &serde_json::Value,
@@ -2738,7 +2747,7 @@ impl BidiNetworkTracker {
       self.nav_request_slot.set(new_request.clone());
     }
 
-    network_log.write().await.push(new_request.clone());
+    crate::context::push_context_log_bounded(network_log, new_request.clone()).await;
     emitter.emit(PageEvent::Request(new_request));
   }
 
@@ -2789,6 +2798,7 @@ impl BidiNetworkTracker {
       resp.finish_success().await;
     }
     emitter.emit(PageEvent::RequestFinished(req));
+    self.remove_request_tracking(&request_id).await;
   }
 
   async fn on_fetch_error(self: &Arc<Self>, params: &serde_json::Value, emitter: &EventEmitter) {
@@ -2813,6 +2823,7 @@ impl BidiNetworkTracker {
       resp.finish_failure(error_text).await;
     }
     emitter.emit(PageEvent::RequestFailed(req));
+    self.remove_request_tracking(&request_id).await;
   }
 
   fn build_response(self: &Arc<Self>, request: NetworkRequest, resp: &serde_json::Value, request_id: &str) -> Response {
@@ -2887,12 +2898,15 @@ impl BidiNetworkTracker {
   }
 
   fn make_raw_headers_fn(self: &Arc<Self>, request_id: &str) -> RawHeadersFn {
-    let tracker = self.clone();
+    let tracker = Arc::downgrade(self);
     let request_id = request_id.to_string();
     Arc::new(move || {
       let tracker = tracker.clone();
       let request_id = request_id.clone();
       Box::pin(async move {
+        let Some(tracker) = tracker.upgrade() else {
+          return Ok(Vec::new());
+        };
         if let Some(resp) = tracker.responses.lock().await.get(&request_id) {
           return Ok(resp.headers_array().await);
         }

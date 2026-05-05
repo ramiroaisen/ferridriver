@@ -582,6 +582,7 @@ impl IpcClient {
               0
             };
             if let Ok(mut log) = ctx.console_log.lock() {
+              crate::context::trim_context_log_vec(&mut log);
               log.push((level, text, vid));
             }
             ctx.event_notify.notify_one();
@@ -593,6 +594,7 @@ impl IpcClient {
             let message = str_decode(&payload, &mut o);
             let action = str_decode(&payload, &mut o);
             if let Ok(mut log) = ctx.dialog_log.lock() {
+              crate::context::trim_context_log_vec(&mut log);
               log.push((dtype, message, action));
             }
             ctx.event_notify.notify_one();
@@ -605,6 +607,7 @@ impl IpcClient {
             let url = str_decode(&payload, &mut o);
             let res_type = str_decode(&payload, &mut o);
             if let Ok(mut log) = ctx.network_log.lock() {
+              crate::context::trim_context_log_vec(&mut log);
               log.push(NetworkEvent::Request {
                 id,
                 method,
@@ -622,6 +625,7 @@ impl IpcClient {
           12 => {
             if let Some(event) = decode_network_response_event(&payload) {
               if let Ok(mut log) = ctx.network_log.lock() {
+                crate::context::trim_context_log_vec(&mut log);
                 log.push(event);
               }
               ctx.event_notify.notify_one();
@@ -633,6 +637,7 @@ impl IpcClient {
             let id = str_decode(&payload, &mut o);
             let error_text = str_decode(&payload, &mut o);
             if let Ok(mut log) = ctx.network_log.lock() {
+              crate::context::trim_context_log_vec(&mut log);
               log.push(NetworkEvent::Failure { id, error_text });
             }
             ctx.event_notify.notify_one();
